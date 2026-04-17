@@ -8,4 +8,12 @@ export default defineConfig({
     react(),
     babel({ presets: [reactCompilerPreset()] })
   ],
+  server: {
+    proxy: {
+      '/bmi': {
+        target: 'http://localhost:50051',
+        rewrite: (path) => path.replace(/^\/bmi/, ''),
+      },
+    },
+  },
 })
