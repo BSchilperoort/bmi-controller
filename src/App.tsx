@@ -47,6 +47,10 @@ function App() {
   const [ops, setOps] = useState<Record<string, boolean>>({})
   const [error, setError] = useState<string | null>(null)
   const [setValueInputs, setSetValueInputs] = useState<Record<string, string>>({})
+  const [selectedInputVar, setSelectedInputVar] = useState('')
+  const [selectedOutputVar, setSelectedOutputVar] = useState('')
+  const [inputVarSizes, setInputVarSizes] = useState<Record<string, number>>({})
+  const [validPrefills, setValidPrefills] = useState<Set<string>>(new Set())
   const [chartVar, setChartVar] = useState('')
   const [chartIndex, setChartIndex] = useState(0)
   const [chartData, setChartData] = useState<ChartPoint[]>([])
@@ -93,6 +97,8 @@ function App() {
         if (err) { setError(getErrorMessage(err)); break }
         if (!playingRef.current) break
         const newTime = await refreshCurrentTime()
+        setValidPrefills(new Set())
+        await prefillInputVar(selectedInputVar)
         if (newTime === null || !playingRef.current) break
         await recordChartPoint(newTime, chartVar)
         if (newTime >= endTime) break
@@ -155,6 +161,8 @@ function App() {
       const { error: err } = await client.POST('/update')
       if (err) { setError(getErrorMessage(err)); return }
       const newTime = await refreshCurrentTime()
+      setValidPrefills(new Set())
+      await prefillInputVar(selectedInputVar)
       if (newTime !== null) await recordChartPoint(newTime, chartVar)
     } catch (e) {
       setError(getErrorMessage(e))
@@ -172,6 +180,8 @@ function App() {
       const { error: err } = await client.POST('/update_until', { body: t })
       if (err) { setError(getErrorMessage(err)); return }
       const newTime = await refreshCurrentTime()
+      setValidPrefills(new Set())
+      await prefillInputVar(selectedInputVar)
       if (newTime !== null) await recordChartPoint(newTime, chartVar)
     } catch (e) {
       setError(getErrorMessage(e))
@@ -231,6 +241,55 @@ function App() {
       setError(getErrorMessage(e))
     } finally {
       endOp(`set_${name}`)
+    }
+  }
+
+  async function prefillInputVar(name: string) {
+    if (!name || !model?.outputVars.includes(name)) return
+    try {
+      const { data: current } = await client.GET('/get_value/{name}', {
+        params: { path: { name } },
+      })
+      if (current != null) {
+        const nums = Array.isArray(current) ? current : [current as unknown as number]
+        setSetValueInputs(prev => ({ ...prev, [name]: nums.join(', ') }))
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  async function selectInputVar(name: string) {
+    setSelectedInputVar(name)
+    if (!name || validPrefills.has(name)) return
+    try {
+      let size = inputVarSizes[name]
+      if (size === undefined) {
+        const { data: grid } = await client.GET('/get_var_grid/{name}', {
+          params: { path: { name } },
+        })
+        if (grid == null) return
+        const { data: fetched } = await client.GET('/get_grid_size/{grid}', {
+          params: { path: { grid } },
+        })
+        if (fetched == null) return
+        size = fetched
+        setInputVarSizes(prev => ({ ...prev, [name]: size! }))
+      }
+      let prefill = Array(size).fill('0').join(', ')
+      if (model?.outputVars.includes(name)) {
+        const { data: current } = await client.GET('/get_value/{name}', {
+          params: { path: { name } },
+        })
+        if (current != null) {
+          const nums = Array.isArray(current) ? current : [current as unknown as number]
+          prefill = nums.join(', ')
+        }
+      }
+      setValidPrefills(prev => new Set([...prev, name]))
+      setSetValueInputs(prev => ({ ...prev, [name]: prefill }))
+    } catch {
+      // ignore
     }
   }
 
@@ -379,42 +438,53 @@ function App() {
             Input Variables
             <span className="badge">{model?.inputVars.length ?? 0}</span>
           </h2>
-          {model?.inputVars.map(name => (
+          <select
+            className="var-select"
+            value={selectedInputVar}
+            onChange={e => selectInputVar(e.target.value)}
+          >
+            <option value="">Select…</option>
+            {model?.inputVars.map(n => <option key={n} value={n}>{n}</option>)}
+          </select>
+          {selectedInputVar && (
             <VarRow
-              key={name}
-              name={name}
-              info={varInfo[name]}
+              info={varInfo[selectedInputVar]}
               isInput
               disabled={phase === 'finalized'}
-              setValueInput={setValueInputs[name] ?? ''}
-              settingValue={ops[`set_${name}`] ?? false}
-              onGetValue={() => getValue(name)}
-              onSetValue={() => setValue(name)}
+              setValueInput={setValueInputs[selectedInputVar] ?? ''}
+              settingValue={ops[`set_${selectedInputVar}`] ?? false}
+              valueCount={inputVarSizes[selectedInputVar]}
+              onSetValue={() => setValue(selectedInputVar)}
               onSetValueInputChange={v =>
-                setSetValueInputs(prev => ({ ...prev, [name]: v }))
+                setSetValueInputs(prev => ({ ...prev, [selectedInputVar]: v }))
               }
             />
-          ))}
+          )}
         </section>
         <section className="vars-section">
           <h2>
             Output Variables
             <span className="badge">{model?.outputVars.length ?? 0}</span>
           </h2>
-          {model?.outputVars.map(name => (
+          <select
+            className="var-select"
+            value={selectedOutputVar}
+            onChange={e => { setSelectedOutputVar(e.target.value); if (e.target.value) getValue(e.target.value) }}
+          >
+            <option value="">Select…</option>
+            {model?.outputVars.map(n => <option key={n} value={n}>{n}</option>)}
+          </select>
+          {selectedOutputVar && (
             <VarRow
-              key={name}
-              name={name}
-              info={varInfo[name]}
+              info={varInfo[selectedOutputVar]}
               isInput={false}
               disabled={phase === 'finalized'}
               setValueInput=""
               settingValue={false}
-              onGetValue={() => getValue(name)}
               onSetValue={() => {}}
               onSetValueInputChange={() => {}}
             />
-          ))}
+          )}
         </section>
       </div>
 
@@ -482,41 +552,29 @@ function App() {
 }
 
 interface VarRowProps {
-  name: string
   info: VarInfo | undefined
   isInput: boolean
   disabled: boolean
   setValueInput: string
   settingValue: boolean
-  onGetValue: () => void
+  valueCount?: number
   onSetValue: () => void
   onSetValueInputChange: (v: string) => void
 }
 
 function VarRow({
-  name,
   info,
   isInput,
   disabled,
   setValueInput,
   settingValue,
-  onGetValue,
+  valueCount,
   onSetValue,
   onSetValueInputChange,
 }: VarRowProps) {
   return (
     <div className="var-row">
-      <div className="var-header">
-        <code className="var-name">{name}</code>
-        <button
-          className="btn-sm"
-          onClick={onGetValue}
-          disabled={disabled || info?.loading}
-        >
-          {info?.loading ? '…' : 'Get'}
-        </button>
-      </div>
-      {info?.value != null && (
+      {!isInput && info?.value != null && (
         <div className="var-value">
           [{info.value.slice(0, 8).map(v => v.toPrecision(4)).join(', ')}
           {info.value.length > 8 ? `, … (${info.value.length} values)` : ''}]
@@ -526,7 +584,7 @@ function VarRow({
         <div className="var-set">
           <input
             type="text"
-            placeholder="values (comma-separated)"
+            placeholder={valueCount != null ? `${valueCount} value${valueCount === 1 ? '' : 's'}, comma-separated` : 'values (comma-separated)'}
             value={setValueInput}
             onChange={e => onSetValueInputChange(e.target.value)}
             disabled={disabled}

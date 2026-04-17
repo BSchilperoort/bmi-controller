@@ -378,6 +378,24 @@ input[type='number'] {
   letter-spacing: 0;
 }
 
+.var-select {
+  width: 100%;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text-h);
+  font: inherit;
+  font-size: 13px;
+  outline: none;
+  margin-bottom: 4px;
+
+  &:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-bg);
+  }
+}
+
 .var-row {
   display: flex;
   flex-direction: column;
