@@ -3,6 +3,7 @@ import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts'
 import { client } from './api/client.ts'
+import { formatCFDate, parseCFTimeUnits } from './cfTime.ts'
 import './App.css'
 
 type Phase = 'idle' | 'ready' | 'finalized'
@@ -257,6 +258,9 @@ function App() {
     : 0
   const atEnd = model != null && model.currentTime >= model.endTime
   const isRunning = ops.update || ops.updateUntil || playing
+  const cfParsed = model ? parseCFTimeUnits(model.timeUnits) : null
+  const toDisplayTime = (v: number) =>
+    cfParsed ? formatCFDate(cfParsed.epoch, cfParsed.multiplierMs, v) : v.toFixed(3)
   const displayData = chartData.map(d => ({
     time: +d.time.toFixed(4),
     value: d.values[chartIndex],
@@ -312,9 +316,9 @@ function App() {
       <section className="time-section">
         <div className="time-info">
           <span className="time-label">t</span>
-          <span className="time-value">{model?.currentTime.toFixed(3)}</span>
+          <span className="time-value">{model ? toDisplayTime(model.currentTime) : '—'}</span>
           <span className="time-sep">/</span>
-          <span className="time-end">{model?.endTime.toFixed(3)}</span>
+          <span className="time-end">{model ? toDisplayTime(model.endTime) : '—'}</span>
           <span className="time-meta">step: {model?.timeStep}</span>
           <span className="time-meta">[{model?.timeUnits}]</span>
         </div>
@@ -452,12 +456,13 @@ function App() {
               <XAxis
                 dataKey="time"
                 tick={{ fontSize: 11 }}
-                label={{ value: model?.timeUnits ?? '', position: 'insideBottomRight', offset: -8, fontSize: 11 }}
+                tickFormatter={cfParsed ? toDisplayTime : undefined}
+                label={cfParsed ? undefined : { value: model?.timeUnits ?? '', position: 'insideBottomRight', offset: -8, fontSize: 11 }}
               />
               <YAxis tick={{ fontSize: 11 }} width={64} />
               <Tooltip
                 contentStyle={{ fontSize: 12, background: 'var(--social-bg)', border: '1px solid var(--border)', borderRadius: 6 }}
-                labelFormatter={v => `t = ${v}`}
+                labelFormatter={v => toDisplayTime(v as number)}
               />
               <Line
                 type="monotone"
