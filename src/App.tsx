@@ -1,4 +1,7 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
+import {
+  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+} from 'recharts'
 import { client } from './api/client.ts'
 import './App.css'
 
@@ -20,6 +23,11 @@ interface ModelState {
   timeUnits: string
 }
 
+interface ChartPoint {
+  time: number
+  values: number[]
+}
+
 function getErrorMessage(err: unknown): string {
   if (err && typeof err === 'object') {
     const e = err as Record<string, unknown>
@@ -38,15 +46,66 @@ function App() {
   const [ops, setOps] = useState<Record<string, boolean>>({})
   const [error, setError] = useState<string | null>(null)
   const [setValueInputs, setSetValueInputs] = useState<Record<string, string>>({})
+  const [chartVar, setChartVar] = useState('')
+  const [chartIndex, setChartIndex] = useState(0)
+  const [chartData, setChartData] = useState<ChartPoint[]>([])
+  const [playing, setPlaying] = useState(false)
+  const playingRef = useRef(false)
 
   function startOp(key: string) { setOps(p => ({ ...p, [key]: true })) }
   function endOp(key: string) { setOps(p => ({ ...p, [key]: false })) }
 
-  async function refreshCurrentTime() {
+  async function refreshCurrentTime(): Promise<number | null> {
     const { data } = await client.GET('/get_current_time')
     if (data !== undefined) {
       setModel(prev => prev ? { ...prev, currentTime: data } : prev)
+      return data
     }
+    return null
+  }
+
+  async function recordChartPoint(time: number, varName: string) {
+    if (!varName) return
+    try {
+      const { data } = await client.GET('/get_value/{name}', {
+        params: { path: { name: varName } },
+      })
+      if (data != null) {
+        const values = Array.isArray(data) ? data : [data as unknown as number]
+        setChartData(prev => [...prev, { time, values }])
+        setVarInfo(prev => ({ ...prev, [varName]: { value: values, loading: false } }))
+      }
+    } catch {
+      // chart recording is non-critical
+    }
+  }
+
+  async function play() {
+    if (!model) return
+    const endTime = model.endTime
+    setPlaying(true)
+    playingRef.current = true
+    setError(null)
+    try {
+      while (playingRef.current) {
+        const { error: err } = await client.POST('/update')
+        if (err) { setError(getErrorMessage(err)); break }
+        if (!playingRef.current) break
+        const newTime = await refreshCurrentTime()
+        if (newTime === null || !playingRef.current) break
+        await recordChartPoint(newTime, chartVar)
+        if (newTime >= endTime) break
+      }
+    } catch (e) {
+      setError(getErrorMessage(e))
+    }
+    setPlaying(false)
+    playingRef.current = false
+  }
+
+  function pause() {
+    playingRef.current = false
+    setPlaying(false)
   }
 
   async function initialize() {
@@ -94,7 +153,8 @@ function App() {
     try {
       const { error: err } = await client.POST('/update')
       if (err) { setError(getErrorMessage(err)); return }
-      await refreshCurrentTime()
+      const newTime = await refreshCurrentTime()
+      if (newTime !== null) await recordChartPoint(newTime, chartVar)
     } catch (e) {
       setError(getErrorMessage(e))
     } finally {
@@ -110,7 +170,8 @@ function App() {
     try {
       const { error: err } = await client.POST('/update_until', { body: t })
       if (err) { setError(getErrorMessage(err)); return }
-      await refreshCurrentTime()
+      const newTime = await refreshCurrentTime()
+      if (newTime !== null) await recordChartPoint(newTime, chartVar)
     } catch (e) {
       setError(getErrorMessage(e))
     } finally {
@@ -172,12 +233,34 @@ function App() {
     }
   }
 
+  async function handleChartVarChange(name: string) {
+    setChartVar(name)
+    setChartData([])
+    if (!name || !model) return
+    try {
+      const { data } = await client.GET('/get_value/{name}', {
+        params: { path: { name } },
+      })
+      if (data != null) {
+        const values = Array.isArray(data) ? data : [data as unknown as number]
+        setChartData([{ time: model.currentTime, values }])
+        setVarInfo(prev => ({ ...prev, [name]: { value: values, loading: false } }))
+      }
+    } catch {
+      // ignore
+    }
+  }
+
   const timeRange = model ? model.endTime - model.startTime : 0
   const progress = model && timeRange > 0
     ? ((model.currentTime - model.startTime) / timeRange) * 100
     : 0
   const atEnd = model != null && model.currentTime >= model.endTime
-  const isRunning = ops.update || ops.updateUntil
+  const isRunning = ops.update || ops.updateUntil || playing
+  const displayData = chartData.map(d => ({
+    time: +d.time.toFixed(4),
+    value: d.values[chartIndex],
+  }))
 
   if (phase === 'idle') {
     return (
@@ -252,6 +335,13 @@ function App() {
           >
             {ops.update ? '…' : '▶ Step'}
           </button>
+          <button
+            className={playing ? 'btn-secondary' : 'btn-primary'}
+            onClick={playing ? pause : play}
+            disabled={!playing && (isRunning || phase === 'finalized' || atEnd)}
+          >
+            {playing ? '⏸ Pause' : '▶▶ Play'}
+          </button>
           <div className="control-group">
             <input
               type="number"
@@ -323,6 +413,65 @@ function App() {
           ))}
         </section>
       </div>
+
+      <section className="chart-section">
+        <h2 className="chart-heading">Plot</h2>
+        <div className="chart-controls">
+          <div className="field-row">
+            <label htmlFor="chart-var">Variable</label>
+            <select
+              id="chart-var"
+              value={chartVar}
+              onChange={e => handleChartVarChange(e.target.value)}
+            >
+              <option value="">Select…</option>
+              {model?.outputVars.map(v => (
+                <option key={v} value={v}>{v}</option>
+              ))}
+            </select>
+          </div>
+          <div className="field-row">
+            <label htmlFor="chart-index">Index</label>
+            <input
+              id="chart-index"
+              type="number"
+              min={0}
+              value={chartIndex}
+              onChange={e => setChartIndex(Math.max(0, parseInt(e.target.value) || 0))}
+              className="index-input"
+            />
+          </div>
+        </div>
+        {chartVar && displayData.length === 0 && (
+          <p className="chart-empty">Step the model to collect data.</p>
+        )}
+        {chartVar && displayData.length > 0 && (
+          <ResponsiveContainer width="100%" height={220}>
+            <LineChart data={displayData} margin={{ top: 8, right: 24, bottom: 24, left: 8 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+              <XAxis
+                dataKey="time"
+                tick={{ fontSize: 11 }}
+                label={{ value: model?.timeUnits ?? '', position: 'insideBottomRight', offset: -8, fontSize: 11 }}
+              />
+              <YAxis tick={{ fontSize: 11 }} width={64} />
+              <Tooltip
+                contentStyle={{ fontSize: 12, background: 'var(--social-bg)', border: '1px solid var(--border)', borderRadius: 6 }}
+                labelFormatter={v => `t = ${v}`}
+              />
+              <Line
+                type="monotone"
+                dataKey="value"
+                stroke="#3b82f6"
+                strokeWidth={1.5}
+                dot={false}
+                isAnimationActive={false}
+                name={`${chartVar}[${chartIndex}]`}
+              />
+            </LineChart>
+          </ResponsiveContainer>
+        )}
+      </section>
     </main>
   )
 }

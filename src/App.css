@@ -201,7 +201,7 @@ input[type='number'] {
   flex: 1;
   display: flex;
   flex-direction: column;
-  min-height: 0;
+  overflow: auto;
 }
 
 .dash-header {
@@ -339,8 +339,6 @@ input[type='number'] {
 .vars-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  flex: 1;
-  overflow: auto;
   align-items: start;
 
   @media (max-width: 700px) {
@@ -433,4 +431,67 @@ input[type='number'] {
     font-size: 13px;
     padding: 6px 10px;
   }
+}
+
+/* ─── Chart section ───────────────────────────────── */
+
+.chart-section {
+  padding: 20px 24px 28px;
+  border-top: 1px solid var(--border);
+}
+
+.chart-heading {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text);
+  font-weight: 600;
+  margin: 0 0 14px;
+}
+
+.chart-controls {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.field-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+
+  label {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-h);
+    white-space: nowrap;
+  }
+
+  select {
+    padding: 6px 10px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--bg);
+    color: var(--text-h);
+    font: inherit;
+    font-size: 13px;
+    outline: none;
+
+    &:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-bg);
+    }
+  }
+}
+
+.index-input {
+  width: 70px;
+}
+
+.chart-empty {
+  font-size: 13px;
+  color: var(--text);
+  margin: 0;
 }
