@@ -67,8 +67,9 @@ function lerp(v: number, d0: number, d1: number, r0: number, r1: number) {
 }
 
 function makeMappers(xs: number[], ys: number[]) {
-  const xMin = Math.min(...xs), xMax = Math.max(...xs)
-  const yMin = Math.min(...ys), yMax = Math.max(...ys)
+  const vxs = xs.filter(isFinite), vys = ys.filter(isFinite)
+  const xMin = Math.min(...vxs), xMax = Math.max(...vxs)
+  const yMin = Math.min(...vys), yMax = Math.max(...vys)
   return {
     mx: (v: number) => lerp(v, xMin, xMax === xMin ? xMin + 1 : xMax, X1, X2),
     my: (v: number) => lerp(v, yMin, yMax === yMin ? yMin + 1 : yMax, Y2, Y1), // flip y
@@ -86,6 +87,7 @@ function subsampleArr(arr: number[], max: number): number[] {
 }
 
 function subsampleLinear(min: number, max: number, count: number, maxLines: number): number[] {
+  if (!isFinite(min) || !isFinite(max)) return []
   const delta = count <= 1 ? 0 : (max - min) / (count - 1)
   return subsampleArr(Array.from({ length: count }, (_, i) => min + i * delta), maxLines)
 }
@@ -212,7 +214,7 @@ function UniformRectilinearView({ g, values }: { g: UniformRectilinearGrid; valu
 // ─── Rectilinear ──────────────────────────────────────
 
 function RectilinearView({ g, values }: { g: RectilinearGrid; values?: number[] }) {
-  const { x: xs, y: ys } = g
+  const xs = g.x.filter(isFinite), ys = g.y.filter(isFinite)
   if (xs.length === 0 || ys.length === 0) return <p className="chart-empty">No coordinate data.</p>
 
   const ncols = xs.length, nrows = ys.length
@@ -266,7 +268,7 @@ function RectilinearView({ g, values }: { g: RectilinearGrid; values?: number[] 
 
 // ─── Structured quadrilateral ─────────────────────────
 
-const MAX_NODES_FULL = 8000
+const MAX_NODES_FULL = 100000
 
 function StructuredQuadView({ g, values, showFaces, showEdges, showNodes }: { g: StructuredQuadGrid; values?: number[] } & Pick<GridViewProps, 'showFaces' | 'showEdges' | 'showNodes'>) {
   const nrows = g.shape[g.shape.length - 2] ?? 1
