@@ -455,7 +455,7 @@ function App() {
     return (
       <main className="init-screen">
         <div className="init-card">
-          <h1>BMI Controller</h1>
+          <h1>🎩 BMI Controller</h1>
           <p className="init-desc">
             Connect to a remoteBMI service and control the model lifecycle.
           </p>
@@ -486,7 +486,7 @@ function App() {
   return (
     <main className="dashboard">
       <header className="dash-header">
-        <span className="dash-title">BMI Controller</span>
+        <span className="dash-title">🎩 BMI Controller</span>
         {model && <span className="model-chip">{model.componentName}</span>}
         <span className={`status-dot status-${phase}`} title={phase} />
       </header>
