@@ -513,3 +513,14 @@ input[type='number'] {
   color: var(--text);
   margin: 0;
 }
+
+.grid-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-h);
+  cursor: pointer;
+  user-select: none;
+}

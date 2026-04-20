@@ -4,6 +4,7 @@ import {
 } from 'recharts'
 import { client } from './api/client.ts'
 import { formatCFDate, parseCFTimeUnits } from './cfTime.ts'
+import { GridView, type GridData } from './GridView.tsx'
 import './App.css'
 
 type Phase = 'idle' | 'ready' | 'finalized'
@@ -56,6 +57,16 @@ function App() {
   const [chartData, setChartData] = useState<ChartPoint[]>([])
   const [playing, setPlaying] = useState(false)
   const playingRef = useRef(false)
+  const [availableGrids, setAvailableGrids] = useState<Map<number, string>>(new Map())
+  const [gridVarMap, setGridVarMap] = useState<Map<number, string[]>>(new Map())
+  const [selectedGridId, setSelectedGridId] = useState<number | null>(null)
+  const [gridData, setGridData] = useState<GridData | null>(null)
+  const [loadingGrid, setLoadingGrid] = useState(false)
+  const [gridVar, setGridVar] = useState('')
+  const [gridVarValues, setGridVarValues] = useState<number[] | null>(null)
+  const [gridShowFaces, setGridShowFaces] = useState(true)
+  const [gridShowEdges, setGridShowEdges] = useState(true)
+  const [gridShowNodes, setGridShowNodes] = useState(true)
 
   function startOp(key: string) { setOps(p => ({ ...p, [key]: true })) }
   function endOp(key: string) { setOps(p => ({ ...p, [key]: false })) }
@@ -99,6 +110,7 @@ function App() {
         const newTime = await refreshCurrentTime()
         setValidPrefills(new Set())
         await prefillInputVar(selectedInputVar)
+        await selectGridVar(gridVar)
         if (newTime === null || !playingRef.current) break
         await recordChartPoint(newTime, chartVar)
         if (newTime >= endTime) break
@@ -136,16 +148,47 @@ function App() {
           client.GET('/get_time_units'),
         ])
 
+      const inputVarNames = Array.isArray(inputRes.data) ? inputRes.data : inputRes.data != null ? [inputRes.data as unknown as string] : []
+      const outputVarNames = Array.isArray(outputRes.data) ? outputRes.data : outputRes.data != null ? [outputRes.data as unknown as string] : []
       setModel({
         componentName: nameRes.data?.name ?? 'Unknown',
-        inputVars: Array.isArray(inputRes.data) ? inputRes.data : inputRes.data != null ? [inputRes.data as unknown as string] : [],
-        outputVars: Array.isArray(outputRes.data) ? outputRes.data : outputRes.data != null ? [outputRes.data as unknown as string] : [],
+        inputVars: inputVarNames,
+        outputVars: outputVarNames,
         currentTime: curRes.data ?? 0,
         startTime: startRes.data ?? 0,
         endTime: endRes.data ?? 0,
         timeStep: stepRes.data ?? 0,
         timeUnits: unitsRes.data?.units ?? '',
       })
+
+      // Discover available grid IDs and build output-var-per-grid map
+      const allVarNames = [...new Set([...inputVarNames, ...outputVarNames])]
+      const gridIdResults = await Promise.all(
+        allVarNames.map(name => client.GET('/get_var_grid/{name}', { params: { path: { name } } }))
+      )
+      const varToGrid = new Map<string, number>()
+      allVarNames.forEach((name, i) => {
+        const id = gridIdResults[i].data
+        if (id != null && id >= 0) varToGrid.set(name, id)
+      })
+      const uniqueGridIds = [...new Set(varToGrid.values())]
+      if (uniqueGridIds.length > 0) {
+        const gridTypeResults = await Promise.all(
+          uniqueGridIds.map(grid => client.GET('/get_grid_type/{grid}', { params: { path: { grid } } }))
+        )
+        const gridsMap = new Map<number, string>()
+        uniqueGridIds.forEach((id, i) => { gridsMap.set(id, gridTypeResults[i].data?.type ?? 'unknown') })
+        setAvailableGrids(gridsMap)
+
+        // Map each grid to its output variables (for the variable selector)
+        const varsByGrid = new Map<number, string[]>()
+        outputVarNames.forEach(name => {
+          const gid = varToGrid.get(name)
+          if (gid !== undefined) varsByGrid.set(gid, [...(varsByGrid.get(gid) ?? []), name])
+        })
+        setGridVarMap(varsByGrid)
+      }
+
       setPhase('ready')
     } catch (e) {
       setError(getErrorMessage(e))
@@ -163,6 +206,7 @@ function App() {
       const newTime = await refreshCurrentTime()
       setValidPrefills(new Set())
       await prefillInputVar(selectedInputVar)
+      await selectGridVar(gridVar)
       if (newTime !== null) await recordChartPoint(newTime, chartVar)
     } catch (e) {
       setError(getErrorMessage(e))
@@ -182,6 +226,7 @@ function App() {
       const newTime = await refreshCurrentTime()
       setValidPrefills(new Set())
       await prefillInputVar(selectedInputVar)
+      await selectGridVar(gridVar)
       if (newTime !== null) await recordChartPoint(newTime, chartVar)
     } catch (e) {
       setError(getErrorMessage(e))
@@ -308,6 +353,87 @@ function App() {
       }
     } catch {
       // ignore
+    }
+  }
+
+  async function selectGridVar(name: string) {
+    setGridVar(name)
+    setGridVarValues(null)
+    if (!name) return
+    try {
+      const { data } = await client.GET('/get_value/{name}', { params: { path: { name } } })
+      if (data != null) {
+        setGridVarValues(Array.isArray(data) ? data : [data as unknown as number])
+      }
+    } catch { /* non-critical */ }
+  }
+
+  async function selectGrid(id: number | null) {
+    setSelectedGridId(id)
+    setGridData(null)
+    setGridVar('')
+    setGridVarValues(null)
+    if (id === null) return
+    const typeStr = availableGrids.get(id) ?? 'unknown'
+    setLoadingGrid(true)
+    try {
+      const rankRes = await client.GET('/get_grid_rank/{grid}', { params: { path: { grid: id } } })
+      const rank = rankRes.data ?? 0
+
+      if (typeStr === 'uniform_rectilinear') {
+        const [shapeRes, spacingRes, originRes] = await Promise.all([
+          client.GET('/get_grid_shape/{grid}', { params: { path: { grid: id } } }),
+          client.GET('/get_grid_spacing/{grid}', { params: { path: { grid: id } } }),
+          client.GET('/get_grid_origin/{grid}', { params: { path: { grid: id } } }),
+        ])
+        setGridData({ type: 'uniform_rectilinear', rank, shape: shapeRes.data ?? [], spacing: spacingRes.data ?? [], origin: originRes.data ?? [] })
+      } else if (typeStr === 'rectilinear') {
+        const [shapeRes, xRes, yRes] = await Promise.all([
+          client.GET('/get_grid_shape/{grid}', { params: { path: { grid: id } } }),
+          client.GET('/get_grid_x/{grid}', { params: { path: { grid: id } } }),
+          client.GET('/get_grid_y/{grid}', { params: { path: { grid: id } } }),
+        ])
+        setGridData({ type: 'rectilinear', rank, shape: shapeRes.data ?? [], x: xRes.data ?? [], y: yRes.data ?? [] })
+      } else if (typeStr === 'structured_quadrilateral') {
+        const [shapeRes, xRes, yRes] = await Promise.all([
+          client.GET('/get_grid_shape/{grid}', { params: { path: { grid: id } } }),
+          client.GET('/get_grid_x/{grid}', { params: { path: { grid: id } } }),
+          client.GET('/get_grid_y/{grid}', { params: { path: { grid: id } } }),
+        ])
+        setGridData({ type: 'structured_quadrilateral', rank, shape: shapeRes.data ?? [], x: xRes.data ?? [], y: yRes.data ?? [] })
+      } else if (typeStr === 'unstructured') {
+        const [nodeCountRes, edgeCountRes, faceCountRes, xRes, yRes] = await Promise.all([
+          client.GET('/get_grid_node_count/{grid}', { params: { path: { grid: id } } }),
+          client.GET('/get_grid_edge_count/{grid}', { params: { path: { grid: id } } }),
+          client.GET('/get_grid_face_count/{grid}', { params: { path: { grid: id } } }),
+          client.GET('/get_grid_x/{grid}', { params: { path: { grid: id } } }),
+          client.GET('/get_grid_y/{grid}', { params: { path: { grid: id } } }),
+        ])
+        const nodeCount = nodeCountRes.data ?? 0
+        const edgeCount = edgeCountRes.data ?? 0
+        const faceCount = faceCountRes.data ?? 0
+        let edgeNodes: number[] | null = null
+        let faceNodes: number[] | null = null
+        let nodesPerFace: number[] | null = null
+        if (edgeCount > 0) {
+          const r = await client.GET('/get_grid_edge_nodes/{grid}', { params: { path: { grid: id } } })
+          edgeNodes = r.data ?? null
+        }
+        if (faceCount > 0) {
+          const [fnRes, npfRes] = await Promise.all([
+            client.GET('/get_grid_face_nodes/{grid}', { params: { path: { grid: id } } }),
+            client.GET('/get_grid_nodes_per_face/{grid}', { params: { path: { grid: id } } }),
+          ])
+          faceNodes = fnRes.data ?? null
+          nodesPerFace = npfRes.data ?? null
+        }
+        setGridData({ type: 'unstructured', rank, nodeCount, edgeCount, faceCount, x: xRes.data ?? [], y: yRes.data ?? [], edgeNodes, faceNodes, nodesPerFace })
+      }
+      // scalar / points / vector: no 2D view, gridData stays null
+    } catch (e) {
+      setError(getErrorMessage(e))
+    } finally {
+      setLoadingGrid(false)
     }
   }
 
@@ -547,6 +673,73 @@ function App() {
           </ResponsiveContainer>
         )}
       </section>
+      {availableGrids.size > 0 && (
+        <section className="chart-section">
+          <h2 className="chart-heading">Grid View</h2>
+          <div className="chart-controls">
+            <div className="field-row">
+              <label htmlFor="grid-select">Grid</label>
+              <select
+                id="grid-select"
+                value={selectedGridId ?? ''}
+                onChange={e => selectGrid(e.target.value !== '' ? Number(e.target.value) : null)}
+              >
+                <option value="">Select…</option>
+                {[...availableGrids.entries()].map(([id, type]) => (
+                  <option key={id} value={id}>Grid {id} ({type.replace(/_/g, ' ')})</option>
+                ))}
+              </select>
+            </div>
+            {selectedGridId !== null && (gridVarMap.get(selectedGridId)?.length ?? 0) > 0 && (
+              <div className="field-row">
+                <label htmlFor="grid-var-select">Variable</label>
+                <select
+                  id="grid-var-select"
+                  value={gridVar}
+                  onChange={e => selectGridVar(e.target.value)}
+                >
+                  <option value="">None</option>
+                  {gridVarMap.get(selectedGridId)?.map(v => (
+                    <option key={v} value={v}>{v}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+            {gridData && (gridData.type === 'structured_quadrilateral' || gridData.type === 'unstructured') && (
+              <div className="field-row">
+                <label>Show</label>
+                <label className="grid-toggle">
+                  <input type="checkbox" checked={gridShowFaces} onChange={e => setGridShowFaces(e.target.checked)} />
+                  faces
+                </label>
+                <label className="grid-toggle">
+                  <input type="checkbox" checked={gridShowEdges} onChange={e => setGridShowEdges(e.target.checked)} />
+                  edges
+                </label>
+                <label className="grid-toggle">
+                  <input type="checkbox" checked={gridShowNodes} onChange={e => setGridShowNodes(e.target.checked)} />
+                  nodes
+                </label>
+              </div>
+            )}
+          </div>
+          {loadingGrid && <p className="chart-empty">Loading grid…</p>}
+          {!loadingGrid && selectedGridId !== null && !gridData && (
+            <p className="chart-empty">
+              No 2D view for grid type "{availableGrids.get(selectedGridId)}".
+            </p>
+          )}
+          {!loadingGrid && gridData && (
+            <GridView
+              data={gridData}
+              values={gridVarValues ?? undefined}
+              showFaces={gridShowFaces}
+              showEdges={gridShowEdges}
+              showNodes={gridShowNodes}
+            />
+          )}
+        </section>
+      )}
     </main>
   )
 }
