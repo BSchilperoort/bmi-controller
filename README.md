@@ -1,75 +1,53 @@
-# React + TypeScript + Vite
+# BMI Web Controller
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+A browser-based controller for [remoteBMI](https://github.com/eWaterCycle/remotebmi) models. Connects to a running remoteBMI server and lets you initialize, step, and inspect the model — including variable plots and grid visualization.
 
-Currently, two official plugins are available:
+## Example
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+Using Wflow.jl's Moselle example dataset:
 
-## React Compiler
+![image](wflowjl-example.png)
 
-The React Compiler is enabled on this template. See [this documentation](https://react.dev/learn/react-compiler) for more information.
 
-Note: This will impact Vite dev & build performances.
+## Prerequisites
 
-## Expanding the ESLint configuration
+- [Node.js](https://nodejs.org/) 20+
+- [pnpm](https://pnpm.io/) (`npm install -g pnpm`)
+- A running remoteBMI server on `http://localhost:50051`
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+## Setup
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+pnpm install
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+## Development
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+pnpm dev
 ```
+
+Opens at `http://localhost:5173`. The dev server will connect to `http://localhost:50051` upon initialization, so the remoteBMI server must be running before you interact with the UI.
+
+## Build
+
+```bash
+pnpm build      # type-check + bundle to dist/
+pnpm preview    # serve the production build locally
+```
+
+## Regenerate API types
+
+The TypeScript types in `src/api/schema.d.ts` are generated from the remoteBMI OpenAPI spec:
+
+```bash
+pnpm generate:api
+```
+
+## Features
+
+- Initialize, step, run-until, and finalize a BMI model
+- Set and inspect input/output variables
+- Time-series plot for any output variable
+- Grid viewer with per-variable color mapping (uniform rectilinear, rectilinear, structured quadrilateral, unstructured)
+- CF conventions time display (`seconds since …`, `hours since …`, etc.)
