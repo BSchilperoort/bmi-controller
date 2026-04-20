@@ -110,7 +110,7 @@ function App() {
         const newTime = await refreshCurrentTime()
         setValidPrefills(new Set())
         await prefillInputVar(selectedInputVar)
-        await selectGridVar(gridVar)
+        await selectGridVar(gridVar, true)
         if (newTime === null || !playingRef.current) break
         await recordChartPoint(newTime, chartVar)
         if (newTime >= endTime) break
@@ -206,7 +206,7 @@ function App() {
       const newTime = await refreshCurrentTime()
       setValidPrefills(new Set())
       await prefillInputVar(selectedInputVar)
-      await selectGridVar(gridVar)
+      await selectGridVar(gridVar, true)
       if (newTime !== null) await recordChartPoint(newTime, chartVar)
     } catch (e) {
       setError(getErrorMessage(e))
@@ -226,7 +226,7 @@ function App() {
       const newTime = await refreshCurrentTime()
       setValidPrefills(new Set())
       await prefillInputVar(selectedInputVar)
-      await selectGridVar(gridVar)
+      await selectGridVar(gridVar, true)
       if (newTime !== null) await recordChartPoint(newTime, chartVar)
     } catch (e) {
       setError(getErrorMessage(e))
@@ -356,9 +356,9 @@ function App() {
     }
   }
 
-  async function selectGridVar(name: string) {
+  async function selectGridVar(name: string, keepExisting = false) {
     setGridVar(name)
-    setGridVarValues(null)
+    if (!keepExisting) setGridVarValues(null)
     if (!name) return
     try {
       const { data } = await client.GET('/get_value/{name}', { params: { path: { name } } })
