@@ -456,6 +456,26 @@ input[type='number'] {
   }
 }
 
+.var-meta {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: 10px;
+  row-gap: 2px;
+  margin: 0;
+  font-size: 11px;
+
+  dt {
+    color: var(--text-muted);
+    font-weight: 500;
+  }
+
+  dd {
+    margin: 0;
+    font-family: var(--mono);
+    color: var(--text);
+  }
+}
+
 .var-units {
   font-size: 11px;
   color: var(--text-muted);

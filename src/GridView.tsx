@@ -46,6 +46,7 @@ export type GridData =
 export interface GridViewProps {
   data: GridData
   values?: number[]
+  units?: string
   showFaces?: boolean
   showEdges?: boolean
   showNodes?: boolean
@@ -116,7 +117,7 @@ const MAX_CELLS = 6000
 
 // ─── Color bar ────────────────────────────────────────
 
-function ColorBar({ vMin, vMax }: { vMin: number; vMax: number }) {
+function ColorBar({ vMin, vMax, units }: { vMin: number; vMax: number; units?: string }) {
   return (
     <>
       <defs>
@@ -129,6 +130,12 @@ function ColorBar({ vMin, vMax }: { vMin: number; vMax: number }) {
       <rect x={CBAR_X} y={Y1} width={14} height={Y2 - Y1} fill="url(#cbar-g)" stroke="var(--border)" strokeWidth={0.5} />
       <text x={CBAR_X + 18} y={Y1 + 5} fontSize={9} fill="var(--text)">{fmtN(vMax)}</text>
       <text x={CBAR_X + 18} y={Y2}     fontSize={9} fill="var(--text)">{fmtN(vMin)}</text>
+      {units && (
+        <text
+          x={CBAR_X + 48} y={Y1/2 + Y2/2}
+          textAnchor="middle" fontSize={12} fill="var(--text-muted)"
+        >[{units}]</text>
+      )}
     </>
   )
 }
@@ -148,7 +155,7 @@ function AxisLabels({ xLabel, yLabel }: { xLabel: string; yLabel: string }) {
 
 // ─── Uniform rectilinear ──────────────────────────────
 
-function UniformRectilinearView({ g, values }: { g: UniformRectilinearGrid; values?: number[] }) {
+function UniformRectilinearView({ g, values, units }: { g: UniformRectilinearGrid; values?: number[]; units?: string }) {
   const n = g.rank
   const ncols = g.shape[n - 1] ?? 1, nrows = g.shape[n - 2] ?? 1
   const x0 = g.origin[n - 1] ?? 0,  y0 = g.origin[n - 2] ?? 0
@@ -205,7 +212,7 @@ function UniformRectilinearView({ g, values }: { g: UniformRectilinearGrid; valu
       {xLines.map((x, i) => <line key={i} x1={mx(x)} y1={svgY1} x2={mx(x)} y2={svgY2} stroke="var(--border)" strokeWidth={colorResult ? 0.15 : 0.6} />)}
       {yLines.map((y, i) => <line key={i} x1={svgX1} y1={my(y)} x2={svgX2} y2={my(y)} stroke="var(--border)" strokeWidth={colorResult ? 0.15 : 0.6} />)}
       <rect x={svgX1} y={svgY1} width={svgX2 - svgX1} height={svgY2 - svgY1} fill="none" stroke="var(--text-h)" strokeWidth={1} />
-      {colorResult && <ColorBar vMin={colorResult.vMin} vMax={colorResult.vMax} />}
+      {colorResult && <ColorBar vMin={colorResult.vMin} vMax={colorResult.vMax} units={units} />}
       <AxisLabels xLabel={`x   ${ncols} nodes, Δx = ${dx}`} yLabel={`y   ${nrows} nodes, Δy = ${dy}`} />
     </svg>
   )
@@ -213,7 +220,7 @@ function UniformRectilinearView({ g, values }: { g: UniformRectilinearGrid; valu
 
 // ─── Rectilinear ──────────────────────────────────────
 
-function RectilinearView({ g, values }: { g: RectilinearGrid; values?: number[] }) {
+function RectilinearView({ g, values, units }: { g: RectilinearGrid; values?: number[]; units?: string }) {
   const xs = g.x.filter(isFinite), ys = g.y.filter(isFinite)
   if (xs.length === 0 || ys.length === 0) return <p className="chart-empty">No coordinate data.</p>
 
@@ -260,7 +267,7 @@ function RectilinearView({ g, values }: { g: RectilinearGrid; values?: number[] 
       {dispXs.map((x, i) => <line key={i} x1={mx(x)} y1={svgY1} x2={mx(x)} y2={svgY2} stroke="var(--border)" strokeWidth={colorResult ? 0.15 : 0.6} />)}
       {dispYs.map((y, i) => <line key={i} x1={svgX1} y1={my(y)} x2={svgX2} y2={my(y)} stroke="var(--border)" strokeWidth={colorResult ? 0.15 : 0.6} />)}
       <rect x={svgX1} y={svgY1} width={svgX2 - svgX1} height={svgY2 - svgY1} fill="none" stroke="var(--text-h)" strokeWidth={1} />
-      {colorResult && <ColorBar vMin={colorResult.vMin} vMax={colorResult.vMax} />}
+      {colorResult && <ColorBar vMin={colorResult.vMin} vMax={colorResult.vMax} units={units} />}
       <AxisLabels xLabel={`x   ${ncols} columns`} yLabel={`y   ${nrows} rows`} />
     </svg>
   )
@@ -270,7 +277,7 @@ function RectilinearView({ g, values }: { g: RectilinearGrid; values?: number[] 
 
 const MAX_NODES_FULL = 100000
 
-function StructuredQuadView({ g, values, showFaces, showEdges, showNodes }: { g: StructuredQuadGrid; values?: number[] } & Pick<GridViewProps, 'showFaces' | 'showEdges' | 'showNodes'>) {
+function StructuredQuadView({ g, values, units, showFaces, showEdges, showNodes }: { g: StructuredQuadGrid; values?: number[]; units?: string } & Pick<GridViewProps, 'showFaces' | 'showEdges' | 'showNodes'>) {
   const nrows = g.shape[g.shape.length - 2] ?? 1
   const ncols = g.shape[g.shape.length - 1] ?? 1
   const { x: xs, y: ys } = g
@@ -342,7 +349,7 @@ function StructuredQuadView({ g, values, showFaces, showEdges, showNodes }: { g:
   return (
     <svg viewBox={`0 0 ${W} ${H}`} width="100%" height={H}>
       {facePolys}{edgeLines}{nodeDots}
-      {colorRange && <ColorBar vMin={colorRange.lo} vMax={colorRange.hi} />}
+      {colorRange && <ColorBar vMin={colorRange.lo} vMax={colorRange.hi} units={units} />}
       <AxisLabels xLabel={`x   ${ncols} cols`} yLabel={`y   ${nrows} rows`} />
     </svg>
   )
@@ -350,7 +357,7 @@ function StructuredQuadView({ g, values, showFaces, showEdges, showNodes }: { g:
 
 // ─── Unstructured ─────────────────────────────────────
 
-function UnstructuredView({ g, values, showFaces, showEdges, showNodes }: { g: UnstructuredGrid; values?: number[] } & Pick<GridViewProps, 'showFaces' | 'showEdges' | 'showNodes'>) {
+function UnstructuredView({ g, values, units, showFaces, showEdges, showNodes }: { g: UnstructuredGrid; values?: number[]; units?: string } & Pick<GridViewProps, 'showFaces' | 'showEdges' | 'showNodes'>) {
   const { x: xs, y: ys } = g
   if (xs.length === 0) return <p className="chart-empty">No coordinate data.</p>
 
@@ -419,7 +426,7 @@ function UnstructuredView({ g, values, showFaces, showEdges, showNodes }: { g: U
   return (
     <svg viewBox={`0 0 ${W} ${H}`} width="100%" height={H}>
       {facePolys}{edgeLines}{nodeDots}
-      {colorRange && <ColorBar vMin={colorRange.lo} vMax={colorRange.hi} />}
+      {colorRange && <ColorBar vMin={colorRange.lo} vMax={colorRange.hi} units={units} />}
       {legend.map((item, i) => (
         <g key={item.label} transform={`translate(${X2 - 160 + i * 56}, ${H - 10})`}>
           <rect x={0} y={-9} width={11} height={11} fill={item.color} stroke="var(--border)" strokeWidth={0.5} />
@@ -433,18 +440,18 @@ function UnstructuredView({ g, values, showFaces, showEdges, showNodes }: { g: U
 
 // ─── Public component ─────────────────────────────────
 
-export function GridView({ data, values, showFaces = true, showEdges = true, showNodes = true }: GridViewProps) {
+export function GridView({ data, values, units, showFaces = true, showEdges = true, showNodes = true }: GridViewProps) {
   if (data.rank < 2) {
     return <p className="chart-empty">Grid rank is {data.rank} — no 2D view available.</p>
   }
   switch (data.type) {
     case 'uniform_rectilinear':
-      return <UniformRectilinearView g={data} values={values} />
+      return <UniformRectilinearView g={data} values={values} units={units} />
     case 'rectilinear':
-      return <RectilinearView g={data} values={values} />
+      return <RectilinearView g={data} values={values} units={units} />
     case 'structured_quadrilateral':
-      return <StructuredQuadView g={data} values={values} showFaces={showFaces} showEdges={showEdges} showNodes={showNodes} />
+      return <StructuredQuadView g={data} values={values} units={units} showFaces={showFaces} showEdges={showEdges} showNodes={showNodes} />
     case 'unstructured':
-      return <UnstructuredView g={data} values={values} showFaces={showFaces} showEdges={showEdges} showNodes={showNodes} />
+      return <UnstructuredView g={data} values={values} units={units} showFaces={showFaces} showEdges={showEdges} showNodes={showNodes} />
   }
 }

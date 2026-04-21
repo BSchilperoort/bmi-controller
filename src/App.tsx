@@ -9,6 +9,14 @@ import './App.css'
 
 type Phase = 'idle' | 'ready' | 'finalized'
 
+interface VarMeta {
+  units: string
+  vartype: string
+  grid: number | null
+  gridType: string | null
+  size: number | null
+}
+
 interface VarInfo {
   value: number[] | null
   loading: boolean
@@ -56,7 +64,7 @@ function App() {
   const [selectedOutputVar, setSelectedOutputVar] = useState('')
   const [inputVarSizes, setInputVarSizes] = useState<Record<string, number>>({})
   const [validPrefills, setValidPrefills] = useState<Set<string>>(new Set())
-  const [varUnits, setVarUnits] = useState<Record<string, string>>({})
+  const [varMeta, setVarMeta] = useState<Record<string, VarMeta>>({})
   const [outputIndicesInput, setOutputIndicesInput] = useState('')
   const [inputIndicesInput, setInputIndicesInput] = useState('')
   const [chartVar, setChartVar] = useState('')
@@ -94,11 +102,29 @@ function App() {
   function startOp(key: string) { setOps(p => ({ ...p, [key]: true })) }
   function endOp(key: string) { setOps(p => ({ ...p, [key]: false })) }
 
-  async function fetchVarUnits(name: string) {
-    if (!name || varUnits[name] !== undefined) return
+  async function fetchVarMeta(name: string) {
+    if (!name || varMeta[name] !== undefined) return
     try {
-      const { data } = await client.GET('/get_var_units/{name}', { params: { path: { name } } })
-      setVarUnits(prev => ({ ...prev, [name]: data?.units ?? '' }))
+      const [unitsRes, typeRes, gridRes] = await Promise.all([
+        client.GET('/get_var_units/{name}', { params: { path: { name } } }),
+        client.GET('/get_var_type/{name}', { params: { path: { name } } }),
+        client.GET('/get_var_grid/{name}', { params: { path: { name } } }),
+      ])
+      const grid = gridRes.data ?? null
+      let gridType: string | null = null
+      let size: number | null = null
+      if (grid != null && grid >= 0) {
+        const [gridTypeRes, sizeRes] = await Promise.all([
+          client.GET('/get_grid_type/{grid}', { params: { path: { grid } } }),
+          client.GET('/get_grid_size/{grid}', { params: { path: { grid } } }),
+        ])
+        gridType = gridTypeRes.data?.type ?? null
+        size = sizeRes.data ?? null
+      }
+      setVarMeta(prev => ({
+        ...prev,
+        [name]: { units: unitsRes.data?.units ?? '', vartype: typeRes.data?.type ?? '', grid, gridType, size },
+      }))
     } catch { /* non-critical */ }
   }
 
@@ -363,7 +389,7 @@ function App() {
   async function selectInputVar(name: string) {
     setSelectedInputVar(name)
     setInputIndicesInput('')
-    fetchVarUnits(name)
+    fetchVarMeta(name)
     if (!name || validPrefills.has(name)) return
     try {
       let size = inputVarSizes[name]
@@ -400,7 +426,7 @@ function App() {
     setChartVar(name)
     setChartIndex(0)
     setChartData([])
-    fetchVarUnits(name)
+    fetchVarMeta(name)
     if (!name || !model) return
     try {
       const { data } = await client.GET('/get_value/{name}', {
@@ -643,7 +669,7 @@ function App() {
               setValueInput={setValueInputs[selectedInputVar] ?? ''}
               settingValue={ops[`set_${selectedInputVar}`] ?? false}
               valueCount={inputVarSizes[selectedInputVar]}
-              units={varUnits[selectedInputVar]}
+              meta={varMeta[selectedInputVar]}
               indicesInput={inputIndicesInput}
               onSetValue={() => setValue(selectedInputVar, inputIndicesInput)}
               onSetValueInputChange={v =>
@@ -664,7 +690,7 @@ function App() {
             onChange={e => {
               setSelectedOutputVar(e.target.value)
               setOutputIndicesInput('')
-              fetchVarUnits(e.target.value)
+              fetchVarMeta(e.target.value)
               if (e.target.value) getValue(e.target.value)
             }}
           >
@@ -694,7 +720,7 @@ function App() {
                 disabled={phase === 'finalized'}
                 setValueInput=""
                 settingValue={false}
-                units={varUnits[selectedOutputVar]}
+                meta={varMeta[selectedOutputVar]}
                 onSetValue={() => {}}
                 onSetValueInputChange={() => {}}
               />
@@ -718,9 +744,6 @@ function App() {
                 <option key={v} value={v}>{v}</option>
               ))}
             </select>
-            {chartVar && varUnits[chartVar] && (
-              <span className="var-units">{varUnits[chartVar]}</span>
-            )}
           </div>
           <div className="field-row">
             <label htmlFor="chart-index">Index</label>
@@ -755,7 +778,7 @@ function App() {
               <YAxis
                 tick={{ fontSize: 11 }}
                 width={64}
-                label={varUnits[chartVar] ? { value: varUnits[chartVar], angle: -90, position: 'insideLeft', offset: 12, fontSize: 11 } : undefined}
+                label={varMeta[chartVar]?.units ? { value: varMeta[chartVar].units, angle: -90, position: 'insideLeft', offset: 12, fontSize: 11 } : undefined}
               />
               <Tooltip
                 contentStyle={{ fontSize: 12, background: 'var(--social-bg)', border: '1px solid var(--border)', borderRadius: 6 }}
@@ -834,6 +857,7 @@ function App() {
             <GridView
               data={gridData}
               values={gridVarValues ?? undefined}
+              units={varMeta[gridVar]?.units}
               showFaces={gridShowFaces}
               showEdges={gridShowEdges}
               showNodes={gridShowNodes}
@@ -852,7 +876,7 @@ interface VarRowProps {
   setValueInput: string
   settingValue: boolean
   valueCount?: number
-  units?: string
+  meta?: VarMeta
   indicesInput?: string
   onSetValue: () => void
   onSetValueInputChange: (v: string) => void
@@ -866,7 +890,7 @@ function VarRow({
   setValueInput,
   settingValue,
   valueCount,
-  units,
+  meta,
   indicesInput,
   onSetValue,
   onSetValueInputChange,
@@ -874,7 +898,6 @@ function VarRow({
 }: VarRowProps) {
   return (
     <div className="var-row">
-      {units && <span className="var-units">{units}</span>}
       {!isInput && info?.value != null && (
         <div className="var-value">
           [{info.value.slice(0, 8).map(v => v.toPrecision(4)).join(', ')}
@@ -909,6 +932,14 @@ function VarRow({
             />
           </div>
         </>
+      )}
+      {meta && (
+        <dl className="var-meta">
+          {meta.units && <><dt>Unit</dt><dd>{meta.units}</dd></>}
+          {meta.vartype && <><dt>Type</dt><dd>{meta.vartype}</dd></>}
+          {meta.size != null && <><dt>Size</dt><dd>{meta.size}</dd></>}
+          {meta.grid != null && <><dt>Grid</dt><dd>{meta.grid}{meta.gridType ? ` (${meta.gridType.replace(/_/g, ' ')})` : ''}</dd></>}
+        </dl>
       )}
     </div>
   )
