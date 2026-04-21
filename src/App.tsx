@@ -30,6 +30,10 @@ interface ChartPoint {
   values: number[]
 }
 
+function parseIndices(str: string): number[] {
+  return str.split(',').map(s => parseInt(s.trim(), 10)).filter(n => !isNaN(n))
+}
+
 function getErrorMessage(err: unknown): string {
   if (err && typeof err === 'object') {
     const e = err as Record<string, unknown>
@@ -52,6 +56,9 @@ function App() {
   const [selectedOutputVar, setSelectedOutputVar] = useState('')
   const [inputVarSizes, setInputVarSizes] = useState<Record<string, number>>({})
   const [validPrefills, setValidPrefills] = useState<Set<string>>(new Set())
+  const [varUnits, setVarUnits] = useState<Record<string, string>>({})
+  const [outputIndicesInput, setOutputIndicesInput] = useState('')
+  const [inputIndicesInput, setInputIndicesInput] = useState('')
   const [chartVar, setChartVar] = useState('')
   const [chartIndex, setChartIndex] = useState(0)
   const [chartData, setChartData] = useState<ChartPoint[]>([])
@@ -70,6 +77,14 @@ function App() {
 
   function startOp(key: string) { setOps(p => ({ ...p, [key]: true })) }
   function endOp(key: string) { setOps(p => ({ ...p, [key]: false })) }
+
+  async function fetchVarUnits(name: string) {
+    if (!name || varUnits[name] !== undefined) return
+    try {
+      const { data } = await client.GET('/get_var_units/{name}', { params: { path: { name } } })
+      setVarUnits(prev => ({ ...prev, [name]: data?.units ?? '' }))
+    } catch { /* non-critical */ }
+  }
 
   async function refreshCurrentTime(): Promise<number | null> {
     const { data } = await client.GET('/get_current_time')
@@ -249,38 +264,63 @@ function App() {
     }
   }
 
-  async function getValue(name: string) {
+  async function getValue(name: string, indicesStr?: string) {
+    const indices = indicesStr ? parseIndices(indicesStr) : null
     setVarInfo(prev => ({
       ...prev,
       [name]: { value: prev[name]?.value ?? null, loading: true },
     }))
     try {
-      const { data, error: err } = await client.GET('/get_value/{name}', {
-        params: { path: { name } },
-      })
-      if (err) setError(getErrorMessage(err))
-      setVarInfo(prev => ({
-        ...prev,
-        [name]: { value: data ?? null, loading: false },
-      }))
+      if (indices && indices.length > 0) {
+        const { data, error: err } = await client.POST('/get_value_at_indices/{name}', {
+          params: { path: { name } },
+          body: indices,
+        })
+        if (err) setError(getErrorMessage(err))
+        setVarInfo(prev => ({ ...prev, [name]: { value: data ?? null, loading: false } }))
+      } else {
+        const { data, error: err } = await client.GET('/get_value/{name}', {
+          params: { path: { name } },
+        })
+        if (err) setError(getErrorMessage(err))
+        setVarInfo(prev => ({ ...prev, [name]: { value: data ?? null, loading: false } }))
+      }
     } catch (e) {
       setError(getErrorMessage(e))
       setVarInfo(prev => ({ ...prev, [name]: { ...prev[name], loading: false } }))
     }
   }
 
-  async function setValue(name: string) {
+  async function setValue(name: string, indicesStr?: string) {
     const raw = setValueInputs[name] ?? ''
     const values = raw.split(',').map(s => parseFloat(s.trim())).filter(n => !isNaN(n))
     if (!values.length) { setError('Enter comma-separated numbers'); return }
+    const indices = indicesStr ? parseIndices(indicesStr) : null
+    if (indices && indices.length > 0) {
+      if (indices.length !== values.length) {
+        setError(`Number of indices (${indices.length}) must match number of values (${values.length})`); return
+      }
+      const varSize = inputVarSizes[name]
+      if (varSize !== undefined && indices.some(i => i >= varSize)) {
+        setError(`All indices must be smaller than variable size (${varSize})`); return
+      }
+    }
     setError(null)
     startOp(`set_${name}`)
     try {
-      const { error: err } = await client.POST('/set_value/{name}', {
-        params: { path: { name } },
-        body: values,
-      })
-      if (err) { setError(getErrorMessage(err)); return }
+      if (indices && indices.length > 0) {
+        const { error: err } = await client.POST('/set_value_at_indices/{name}', {
+          params: { path: { name } },
+          body: { indices, values },
+        })
+        if (err) { setError(getErrorMessage(err)); return }
+      } else {
+        const { error: err } = await client.POST('/set_value/{name}', {
+          params: { path: { name } },
+          body: values,
+        })
+        if (err) { setError(getErrorMessage(err)); return }
+      }
       await getValue(name)
     } catch (e) {
       setError(getErrorMessage(e))
@@ -306,6 +346,8 @@ function App() {
 
   async function selectInputVar(name: string) {
     setSelectedInputVar(name)
+    setInputIndicesInput('')
+    fetchVarUnits(name)
     if (!name || validPrefills.has(name)) return
     try {
       let size = inputVarSizes[name]
@@ -340,7 +382,9 @@ function App() {
 
   async function handleChartVarChange(name: string) {
     setChartVar(name)
+    setChartIndex(0)
     setChartData([])
+    fetchVarUnits(name)
     if (!name || !model) return
     try {
       const { data } = await client.GET('/get_value/{name}', {
@@ -580,10 +624,13 @@ function App() {
               setValueInput={setValueInputs[selectedInputVar] ?? ''}
               settingValue={ops[`set_${selectedInputVar}`] ?? false}
               valueCount={inputVarSizes[selectedInputVar]}
-              onSetValue={() => setValue(selectedInputVar)}
+              units={varUnits[selectedInputVar]}
+              indicesInput={inputIndicesInput}
+              onSetValue={() => setValue(selectedInputVar, inputIndicesInput)}
               onSetValueInputChange={v =>
                 setSetValueInputs(prev => ({ ...prev, [selectedInputVar]: v }))
               }
+              onIndicesChange={v => setInputIndicesInput(v)}
             />
           )}
         </section>
@@ -595,21 +642,44 @@ function App() {
           <select
             className="var-select"
             value={selectedOutputVar}
-            onChange={e => { setSelectedOutputVar(e.target.value); if (e.target.value) getValue(e.target.value) }}
+            onChange={e => {
+              setSelectedOutputVar(e.target.value)
+              setOutputIndicesInput('')
+              fetchVarUnits(e.target.value)
+              if (e.target.value) getValue(e.target.value)
+            }}
           >
             <option value="">Select…</option>
             {model?.outputVars.map(n => <option key={n} value={n}>{n}</option>)}
           </select>
           {selectedOutputVar && (
-            <VarRow
-              info={varInfo[selectedOutputVar]}
-              isInput={false}
-              disabled={phase === 'finalized'}
-              setValueInput=""
-              settingValue={false}
-              onSetValue={() => {}}
-              onSetValueInputChange={() => {}}
-            />
+            <>
+              <div className="var-indices">
+                <input
+                  type="text"
+                  placeholder="indices (optional, comma-separated)"
+                  value={outputIndicesInput}
+                  onChange={e => setOutputIndicesInput(e.target.value)}
+                />
+                <button
+                  className="btn-sm btn-secondary"
+                  onClick={() => getValue(selectedOutputVar, outputIndicesInput)}
+                  disabled={varInfo[selectedOutputVar]?.loading}
+                >
+                  {varInfo[selectedOutputVar]?.loading ? '…' : 'Get'}
+                </button>
+              </div>
+              <VarRow
+                info={varInfo[selectedOutputVar]}
+                isInput={false}
+                disabled={phase === 'finalized'}
+                setValueInput=""
+                settingValue={false}
+                units={varUnits[selectedOutputVar]}
+                onSetValue={() => {}}
+                onSetValueInputChange={() => {}}
+              />
+            </>
           )}
         </section>
       </div>
@@ -629,6 +699,9 @@ function App() {
                 <option key={v} value={v}>{v}</option>
               ))}
             </select>
+            {chartVar && varUnits[chartVar] && (
+              <span className="var-units">{varUnits[chartVar]}</span>
+            )}
           </div>
           <div className="field-row">
             <label htmlFor="chart-index">Index</label>
@@ -636,8 +709,13 @@ function App() {
               id="chart-index"
               type="number"
               min={0}
+              max={chartVar ? (varInfo[chartVar]?.value?.length ?? 1) - 1 : undefined}
               value={chartIndex}
-              onChange={e => setChartIndex(Math.max(0, parseInt(e.target.value) || 0))}
+              onChange={e => {
+                const size = varInfo[chartVar]?.value?.length
+                const parsed = parseInt(e.target.value) || 0
+                setChartIndex(Math.min(Math.max(0, parsed), size != null ? size - 1 : parsed))
+              }}
               className="index-input"
             />
           </div>
@@ -655,13 +733,17 @@ function App() {
                 tickFormatter={cfParsed ? toDisplayTime : undefined}
                 label={cfParsed ? undefined : { value: model?.timeUnits ?? '', position: 'insideBottomRight', offset: -8, fontSize: 11 }}
               />
-              <YAxis tick={{ fontSize: 11 }} width={64} />
+              <YAxis
+                tick={{ fontSize: 11 }}
+                width={64}
+                label={varUnits[chartVar] ? { value: varUnits[chartVar], angle: -90, position: 'insideLeft', offset: 12, fontSize: 11 } : undefined}
+              />
               <Tooltip
                 contentStyle={{ fontSize: 12, background: 'var(--social-bg)', border: '1px solid var(--border)', borderRadius: 6 }}
                 labelFormatter={v => toDisplayTime(v as number)}
               />
               <Line
-                type="monotone"
+                type="linear"
                 dataKey="value"
                 stroke="#3b82f6"
                 strokeWidth={1.5}
@@ -751,8 +833,11 @@ interface VarRowProps {
   setValueInput: string
   settingValue: boolean
   valueCount?: number
+  units?: string
+  indicesInput?: string
   onSetValue: () => void
   onSetValueInputChange: (v: string) => void
+  onIndicesChange?: (v: string) => void
 }
 
 function VarRow({
@@ -762,11 +847,15 @@ function VarRow({
   setValueInput,
   settingValue,
   valueCount,
+  units,
+  indicesInput,
   onSetValue,
   onSetValueInputChange,
+  onIndicesChange,
 }: VarRowProps) {
   return (
     <div className="var-row">
+      {units && <span className="var-units">{units}</span>}
       {!isInput && info?.value != null && (
         <div className="var-value">
           [{info.value.slice(0, 8).map(v => v.toPrecision(4)).join(', ')}
@@ -774,22 +863,33 @@ function VarRow({
         </div>
       )}
       {isInput && (
-        <div className="var-set">
-          <input
-            type="text"
-            placeholder={valueCount != null ? `${valueCount} value${valueCount === 1 ? '' : 's'}, comma-separated` : 'values (comma-separated)'}
-            value={setValueInput}
-            onChange={e => onSetValueInputChange(e.target.value)}
-            disabled={disabled}
-          />
-          <button
-            className="btn-sm btn-accent"
-            onClick={onSetValue}
-            disabled={disabled || settingValue || !setValueInput.trim()}
-          >
-            {settingValue ? '…' : 'Set'}
-          </button>
-        </div>
+        <>
+          <div className="var-set">
+            <input
+              type="text"
+              placeholder={valueCount != null ? `${valueCount} value${valueCount === 1 ? '' : 's'}, comma-separated` : 'values (comma-separated)'}
+              value={setValueInput}
+              onChange={e => onSetValueInputChange(e.target.value)}
+              disabled={disabled}
+            />
+            <button
+              className="btn-sm btn-accent"
+              onClick={onSetValue}
+              disabled={disabled || settingValue || !setValueInput.trim()}
+            >
+              {settingValue ? '…' : 'Set'}
+            </button>
+          </div>
+          <div className="var-indices">
+            <input
+              type="text"
+              placeholder="indices (optional, comma-separated)"
+              value={indicesInput ?? ''}
+              onChange={e => onIndicesChange?.(e.target.value)}
+              disabled={disabled}
+            />
+          </div>
+        </>
       )}
     </div>
   )

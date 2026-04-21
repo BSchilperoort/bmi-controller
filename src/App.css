@@ -451,6 +451,30 @@ input[type='number'] {
   }
 }
 
+.var-units {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: var(--mono);
+  background: var(--code-bg);
+  border-radius: 3px;
+  padding: 2px 6px;
+  align-self: flex-start;
+}
+
+.var-indices {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+
+  input {
+    flex: 1;
+    min-width: 0;
+    font-size: 12px;
+    padding: 5px 10px;
+    color: var(--text-muted);
+  }
+}
+
 /* ─── Chart section ───────────────────────────────── */
 
 .chart-section {
