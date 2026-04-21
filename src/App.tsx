@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts'
@@ -62,6 +62,7 @@ function App() {
   const [chartVar, setChartVar] = useState('')
   const [chartIndex, setChartIndex] = useState(0)
   const [chartData, setChartData] = useState<ChartPoint[]>([])
+  const [connected, setConnected] = useState<boolean | null>(null)
   const [playing, setPlaying] = useState(false)
   const playingRef = useRef(false)
   const [availableGrids, setAvailableGrids] = useState<Map<number, string>>(new Map())
@@ -74,6 +75,21 @@ function App() {
   const [gridShowFaces, setGridShowFaces] = useState(true)
   const [gridShowEdges, setGridShowEdges] = useState(true)
   const [gridShowNodes, setGridShowNodes] = useState(true)
+
+  useEffect(() => {
+    if (phase === 'idle') return
+    const check = async () => {
+      try {
+        const { data } = await client.GET('/get_component_name')
+        setConnected(data != null)
+      } catch {
+        setConnected(false)
+      }
+    }
+    check()
+    const id = setInterval(check, 5000)
+    return () => clearInterval(id)
+  }, [phase])
 
   function startOp(key: string) { setOps(p => ({ ...p, [key]: true })) }
   function endOp(key: string) { setOps(p => ({ ...p, [key]: false })) }
@@ -532,7 +548,10 @@ function App() {
       <header className="dash-header">
         <span className="dash-title">🎩 BMI Controller</span>
         {model && <span className="model-chip">{model.componentName}</span>}
-        <span className={`status-dot status-${phase}`} title={phase} />
+        <span
+          className={`status-dot status-${connected === null ? 'idle' : connected ? 'ready' : 'error'}`}
+          title={connected === null ? 'checking connection…' : connected ? 'connected' : 'connection lost'}
+        />
       </header>
 
       {error && (
