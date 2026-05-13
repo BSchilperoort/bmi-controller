@@ -1,55 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
-import {
-  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-} from 'recharts'
 import { client } from './api/client.ts'
-import { formatCFDate, parseCFTimeUnits } from './cfTime.ts'
-import { GridView, type GridData } from './GridView.tsx'
+import { formatCFDate, parseCFTimeUnits } from './utils/cfTime.ts'
+import { type GridData } from './components/GridView.tsx'
+import type { Phase, VarMeta, VarInfo, ModelState, ChartPoint } from './interfaces/index.ts'
+import { parseIndices, getErrorMessage } from './utils/index.ts'
+import { TimeSection } from './components/TimeSection.tsx'
+import { VarsSection } from './components/VarsSection.tsx'
+import { PlotSection } from './components/PlotSection.tsx'
+import { GridSection } from './components/GridSection.tsx'
 import './App.css'
-
-type Phase = 'idle' | 'ready' | 'finalized'
-
-interface VarMeta {
-  units: string
-  vartype: string
-  grid: number | null
-  gridType: string | null
-  size: number | null
-}
-
-interface VarInfo {
-  value: number[] | null
-  loading: boolean
-}
-
-interface ModelState {
-  componentName: string
-  inputVars: string[]
-  outputVars: string[]
-  currentTime: number
-  startTime: number
-  endTime: number
-  timeStep: number
-  timeUnits: string
-}
-
-interface ChartPoint {
-  time: number
-  values: number[]
-}
-
-function parseIndices(str: string): number[] {
-  return str.split(',').map(s => parseInt(s.trim(), 10)).filter(n => !isNaN(n))
-}
-
-function getErrorMessage(err: unknown): string {
-  if (err && typeof err === 'object') {
-    const e = err as Record<string, unknown>
-    if (typeof e.detail === 'string') return e.detail
-    if (typeof e.title === 'string') return e.title
-  }
-  return String(err)
-}
 
 function App() {
   const [phase, setPhase] = useState<Phase>('idle')
@@ -149,7 +108,7 @@ function App() {
         setVarInfo(prev => ({ ...prev, [varName]: { value: values, loading: false } }))
       }
     } catch {
-      // chart recording is non-critical
+      // non-critical
     }
   }
 
@@ -218,7 +177,6 @@ function App() {
         timeUnits: unitsRes.data?.units ?? '',
       })
 
-      // Discover available grid IDs and build output-var-per-grid map
       const allVarNames = [...new Set([...inputVarNames, ...outputVarNames])]
       const gridIdResults = await Promise.all(
         allVarNames.map(name => client.GET('/get_var_grid/{name}', { params: { path: { name } } }))
@@ -237,7 +195,6 @@ function App() {
         uniqueGridIds.forEach((id, i) => { gridsMap.set(id, gridTypeResults[i].data?.type ?? 'unknown') })
         setAvailableGrids(gridsMap)
 
-        // Map each grid to its output variables (for the variable selector)
         const varsByGrid = new Map<number, string[]>()
         outputVarNames.forEach(name => {
           const gid = varToGrid.get(name)
@@ -422,6 +379,13 @@ function App() {
     }
   }
 
+  async function selectOutputVar(name: string) {
+    setSelectedOutputVar(name)
+    setOutputIndicesInput('')
+    fetchVarMeta(name)
+    if (name) await getValue(name)
+  }
+
   async function handleChartVarChange(name: string) {
     setChartVar(name)
     setChartIndex(0)
@@ -515,7 +479,6 @@ function App() {
         }
         setGridData({ type: 'unstructured', rank, nodeCount, edgeCount, faceCount, x: xRes.data ?? [], y: yRes.data ?? [], edgeNodes, faceNodes, nodesPerFace })
       }
-      // scalar / points / vector: no 2D view, gridData stays null
     } catch (e) {
       setError(getErrorMessage(e))
     } finally {
@@ -579,369 +542,80 @@ function App() {
           title={connected === null ? 'checking connection…' : connected ? 'connected' : 'connection lost'}
         />
       </header>
-
       {error && (
         <div className="error-banner">
           <span>{error}</span>
           <button onClick={() => setError(null)} aria-label="Dismiss error">✕</button>
         </div>
       )}
-
-      <section className="time-section">
-        <div className="time-info">
-          <span className="time-label">t</span>
-          <span className="time-value">{model ? toDisplayTime(model.currentTime) : '—'}</span>
-          <span className="time-sep">/</span>
-          <span className="time-end">{model ? toDisplayTime(model.endTime) : '—'}</span>
-          <span className="time-meta">step: {model?.timeStep}</span>
-          <span className="time-meta">[{model?.timeUnits}]</span>
-        </div>
-        <div
-          className="progress-bar"
-          role="progressbar"
-          aria-valuenow={Math.round(progress)}
-          aria-valuemin={0}
-          aria-valuemax={100}
-        >
-          <div className="progress-fill" style={{ width: `${Math.min(100, progress)}%` }} />
-        </div>
-        <div className="controls">
-          <button
-            className="btn-primary"
-            onClick={update}
-            disabled={isRunning || phase === 'finalized' || atEnd}
-          >
-            {ops.update ? '…' : '▶ Step'}
-          </button>
-          <button
-            className={playing ? 'btn-secondary' : 'btn-primary'}
-            onClick={playing ? pause : play}
-            disabled={!playing && (isRunning || phase === 'finalized' || atEnd)}
-          >
-            {playing ? '⏸ Pause' : '▶▶ Play'}
-          </button>
-          <div className="control-group">
-            <input
-              type="number"
-              className="time-input"
-              placeholder={`until (${model?.timeUnits ?? '?'})`}
-              value={updateUntilTime}
-              onChange={e => setUpdateUntilTime(e.target.value)}
-              disabled={isRunning || phase === 'finalized' || atEnd}
-            />
-            <button
-              className="btn-secondary"
-              onClick={updateUntil}
-              disabled={isRunning || phase === 'finalized' || !updateUntilTime || atEnd}
-            >
-              {ops.updateUntil ? '…' : '▶▶ Run Until'}
-            </button>
-          </div>
-          <button
-            className="btn-danger"
-            onClick={finalize}
-            disabled={ops.finalize || phase === 'finalized'}
-          >
-            {ops.finalize ? '…' : 'Finalize'}
-          </button>
-        </div>
-      </section>
-
-      <div className="vars-grid">
-        <section className="vars-section">
-          <h2>
-            Input Variables
-            <span className="badge">{model?.inputVars.length ?? 0}</span>
-          </h2>
-          <select
-            className="var-select"
-            value={selectedInputVar}
-            onChange={e => selectInputVar(e.target.value)}
-          >
-            <option value="">Select…</option>
-            {model?.inputVars.map(n => <option key={n} value={n}>{n}</option>)}
-          </select>
-          {selectedInputVar && (
-            <VarRow
-              info={varInfo[selectedInputVar]}
-              isInput
-              disabled={phase === 'finalized'}
-              setValueInput={setValueInputs[selectedInputVar] ?? ''}
-              settingValue={ops[`set_${selectedInputVar}`] ?? false}
-              valueCount={inputVarSizes[selectedInputVar]}
-              meta={varMeta[selectedInputVar]}
-              indicesInput={inputIndicesInput}
-              onSetValue={() => setValue(selectedInputVar, inputIndicesInput)}
-              onSetValueInputChange={v =>
-                setSetValueInputs(prev => ({ ...prev, [selectedInputVar]: v }))
-              }
-              onIndicesChange={v => setInputIndicesInput(v)}
-            />
-          )}
-        </section>
-        <section className="vars-section">
-          <h2>
-            Output Variables
-            <span className="badge">{model?.outputVars.length ?? 0}</span>
-          </h2>
-          <select
-            className="var-select"
-            value={selectedOutputVar}
-            onChange={e => {
-              setSelectedOutputVar(e.target.value)
-              setOutputIndicesInput('')
-              fetchVarMeta(e.target.value)
-              if (e.target.value) getValue(e.target.value)
-            }}
-          >
-            <option value="">Select…</option>
-            {model?.outputVars.map(n => <option key={n} value={n}>{n}</option>)}
-          </select>
-          {selectedOutputVar && (
-            <>
-              <div className="var-indices">
-                <input
-                  type="text"
-                  placeholder="indices (optional, comma-separated)"
-                  value={outputIndicesInput}
-                  onChange={e => setOutputIndicesInput(e.target.value)}
-                />
-                <button
-                  className="btn-sm btn-secondary"
-                  onClick={() => getValue(selectedOutputVar, outputIndicesInput)}
-                  disabled={varInfo[selectedOutputVar]?.loading}
-                >
-                  {varInfo[selectedOutputVar]?.loading ? '…' : 'Get'}
-                </button>
-              </div>
-              <VarRow
-                info={varInfo[selectedOutputVar]}
-                isInput={false}
-                disabled={phase === 'finalized'}
-                setValueInput=""
-                settingValue={false}
-                meta={varMeta[selectedOutputVar]}
-                onSetValue={() => {}}
-                onSetValueInputChange={() => {}}
-              />
-            </>
-          )}
-        </section>
-      </div>
-
-      <section className="chart-section">
-        <h2 className="chart-heading">Plot</h2>
-        <div className="chart-controls">
-          <div className="field-row">
-            <label htmlFor="chart-var">Variable</label>
-            <select
-              id="chart-var"
-              value={chartVar}
-              onChange={e => handleChartVarChange(e.target.value)}
-            >
-              <option value="">Select…</option>
-              {model?.outputVars.map(v => (
-                <option key={v} value={v}>{v}</option>
-              ))}
-            </select>
-          </div>
-          <div className="field-row">
-            <label htmlFor="chart-index">Index</label>
-            <input
-              id="chart-index"
-              type="number"
-              min={0}
-              max={chartVar ? (varInfo[chartVar]?.value?.length ?? 1) - 1 : undefined}
-              value={chartIndex}
-              onChange={e => {
-                const size = varInfo[chartVar]?.value?.length
-                const parsed = parseInt(e.target.value) || 0
-                setChartIndex(Math.min(Math.max(0, parsed), size != null ? size - 1 : parsed))
-              }}
-              className="index-input"
-            />
-          </div>
-        </div>
-        {chartVar && displayData.length === 0 && (
-          <p className="chart-empty">Step the model to collect data.</p>
-        )}
-        {chartVar && displayData.length > 0 && (
-          <ResponsiveContainer width="100%" height={220}>
-            <LineChart data={displayData} margin={{ top: 8, right: 24, bottom: 24, left: 8 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-              <XAxis
-                dataKey="time"
-                tick={{ fontSize: 11 }}
-                tickFormatter={cfParsed ? toDisplayTime : undefined}
-                label={cfParsed ? undefined : { value: model?.timeUnits ?? '', position: 'insideBottomRight', offset: -8, fontSize: 11 }}
-              />
-              <YAxis
-                tick={{ fontSize: 11 }}
-                width={64}
-                label={varMeta[chartVar]?.units ? { value: varMeta[chartVar].units, angle: -90, position: 'insideLeft', offset: 12, fontSize: 11 } : undefined}
-              />
-              <Tooltip
-                contentStyle={{ fontSize: 12, background: 'var(--social-bg)', border: '1px solid var(--border)', borderRadius: 6 }}
-                labelFormatter={v => toDisplayTime(v as number)}
-              />
-              <Line
-                type="linear"
-                dataKey="value"
-                stroke="#3b82f6"
-                strokeWidth={1.5}
-                dot={false}
-                isAnimationActive={false}
-                name={`${chartVar}[${chartIndex}]`}
-              />
-            </LineChart>
-          </ResponsiveContainer>
-        )}
-      </section>
-      {availableGrids.size > 0 && (
-        <section className="chart-section">
-          <h2 className="chart-heading">Grid View</h2>
-          <div className="chart-controls">
-            <div className="field-row">
-              <label htmlFor="grid-select">Grid</label>
-              <select
-                id="grid-select"
-                value={selectedGridId ?? ''}
-                onChange={e => selectGrid(e.target.value !== '' ? Number(e.target.value) : null)}
-              >
-                <option value="">Select…</option>
-                {[...availableGrids.entries()].map(([id, type]) => (
-                  <option key={id} value={id}>Grid {id} ({type.replace(/_/g, ' ')})</option>
-                ))}
-              </select>
-            </div>
-            {selectedGridId !== null && (gridVarMap.get(selectedGridId)?.length ?? 0) > 0 && (
-              <div className="field-row">
-                <label htmlFor="grid-var-select">Variable</label>
-                <select
-                  id="grid-var-select"
-                  value={gridVar}
-                  onChange={e => selectGridVar(e.target.value)}
-                >
-                  <option value="">None</option>
-                  {gridVarMap.get(selectedGridId)?.map(v => (
-                    <option key={v} value={v}>{v}</option>
-                  ))}
-                </select>
-              </div>
-            )}
-            {gridData && (gridData.type === 'structured_quadrilateral' || gridData.type === 'unstructured') && (
-              <div className="field-row">
-                <label>Show</label>
-                <label className="grid-toggle">
-                  <input type="checkbox" checked={gridShowFaces} onChange={e => setGridShowFaces(e.target.checked)} />
-                  faces
-                </label>
-                <label className="grid-toggle">
-                  <input type="checkbox" checked={gridShowEdges} onChange={e => setGridShowEdges(e.target.checked)} />
-                  edges
-                </label>
-                <label className="grid-toggle">
-                  <input type="checkbox" checked={gridShowNodes} onChange={e => setGridShowNodes(e.target.checked)} />
-                  nodes
-                </label>
-              </div>
-            )}
-          </div>
-          {loadingGrid && <p className="chart-empty">Loading grid…</p>}
-          {!loadingGrid && selectedGridId !== null && !gridData && (
-            <p className="chart-empty">
-              No 2D view for grid type "{availableGrids.get(selectedGridId)}".
-            </p>
-          )}
-          {!loadingGrid && gridData && (
-            <GridView
-              data={gridData}
-              values={gridVarValues ?? undefined}
-              units={varMeta[gridVar]?.units}
-              showFaces={gridShowFaces}
-              showEdges={gridShowEdges}
-              showNodes={gridShowNodes}
-            />
-          )}
-        </section>
-      )}
+      <TimeSection
+        model={model}
+        toDisplayTime={toDisplayTime}
+        progress={progress}
+        isRunning={isRunning}
+        playing={playing}
+        phase={phase}
+        atEnd={atEnd}
+        ops={ops}
+        updateUntilTime={updateUntilTime}
+        onUpdateUntilTimeChange={setUpdateUntilTime}
+        onStep={update}
+        onPlay={play}
+        onPause={pause}
+        onRunUntil={updateUntil}
+        onFinalize={finalize}
+      />
+      <VarsSection
+        model={model}
+        phase={phase}
+        selectedInputVar={selectedInputVar}
+        selectedOutputVar={selectedOutputVar}
+        varInfo={varInfo}
+        varMeta={varMeta}
+        setValueInputs={setValueInputs}
+        ops={ops}
+        inputVarSizes={inputVarSizes}
+        inputIndicesInput={inputIndicesInput}
+        outputIndicesInput={outputIndicesInput}
+        onSelectInputVar={selectInputVar}
+        onSelectOutputVar={selectOutputVar}
+        onSetValue={setValue}
+        onSetValueInputChange={(name, v) => setSetValueInputs(prev => ({ ...prev, [name]: v }))}
+        onInputIndicesChange={setInputIndicesInput}
+        onOutputIndicesChange={setOutputIndicesInput}
+        onGetValue={getValue}
+      />
+      <PlotSection
+        model={model}
+        chartVar={chartVar}
+        chartIndex={chartIndex}
+        displayData={displayData}
+        varInfo={varInfo}
+        varMeta={varMeta}
+        isCFTime={cfParsed !== null}
+        toDisplayTime={toDisplayTime}
+        onChartVarChange={handleChartVarChange}
+        onChartIndexChange={setChartIndex}
+      />
+      <GridSection
+        availableGrids={availableGrids}
+        gridVarMap={gridVarMap}
+        selectedGridId={selectedGridId}
+        gridData={gridData}
+        loadingGrid={loadingGrid}
+        gridVar={gridVar}
+        gridVarValues={gridVarValues}
+        gridShowFaces={gridShowFaces}
+        gridShowEdges={gridShowEdges}
+        gridShowNodes={gridShowNodes}
+        varMeta={varMeta}
+        onSelectGrid={selectGrid}
+        onSelectGridVar={selectGridVar}
+        onShowFacesChange={setGridShowFaces}
+        onShowEdgesChange={setGridShowEdges}
+        onShowNodesChange={setGridShowNodes}
+      />
     </main>
-  )
-}
-
-interface VarRowProps {
-  info: VarInfo | undefined
-  isInput: boolean
-  disabled: boolean
-  setValueInput: string
-  settingValue: boolean
-  valueCount?: number
-  meta?: VarMeta
-  indicesInput?: string
-  onSetValue: () => void
-  onSetValueInputChange: (v: string) => void
-  onIndicesChange?: (v: string) => void
-}
-
-function VarRow({
-  info,
-  isInput,
-  disabled,
-  setValueInput,
-  settingValue,
-  valueCount,
-  meta,
-  indicesInput,
-  onSetValue,
-  onSetValueInputChange,
-  onIndicesChange,
-}: VarRowProps) {
-  return (
-    <div className="var-row">
-      {!isInput && info?.value != null && (
-        <div className="var-value">
-          [{info.value.slice(0, 8).map(v => v.toPrecision(4)).join(', ')}
-          {info.value.length > 8 ? `, … (${info.value.length} values)` : ''}]
-        </div>
-      )}
-      {isInput && (
-        <>
-          <div className="var-set">
-            <input
-              type="text"
-              placeholder={valueCount != null ? `${valueCount} value${valueCount === 1 ? '' : 's'}, comma-separated` : 'values (comma-separated)'}
-              value={setValueInput}
-              onChange={e => onSetValueInputChange(e.target.value)}
-              disabled={disabled}
-            />
-            <button
-              className="btn-sm btn-accent"
-              onClick={onSetValue}
-              disabled={disabled || settingValue || !setValueInput.trim()}
-            >
-              {settingValue ? '…' : 'Set'}
-            </button>
-          </div>
-          <div className="var-indices">
-            <input
-              type="text"
-              placeholder="indices (optional, comma-separated)"
-              value={indicesInput ?? ''}
-              onChange={e => onIndicesChange?.(e.target.value)}
-              disabled={disabled}
-            />
-          </div>
-        </>
-      )}
-      {meta && (
-        <dl className="var-meta">
-          {meta.units && <><dt>Unit</dt><dd>{meta.units}</dd></>}
-          {meta.vartype && <><dt>Type</dt><dd>{meta.vartype}</dd></>}
-          {meta.size != null && <><dt>Size</dt><dd>{meta.size}</dd></>}
-          {meta.grid != null && <><dt>Grid</dt><dd>{meta.grid}{meta.gridType ? ` (${meta.gridType.replace(/_/g, ' ')})` : ''}</dd></>}
-        </dl>
-      )}
-    </div>
   )
 }
 
