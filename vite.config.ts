@@ -60,6 +60,7 @@ function bmiProxyPlugin(): Plugin {
 }
 
 export default defineConfig({
+  base: process.env.GITHUB_ACTIONS ? '/bmi-controller/' : '/',
   plugins: [
     react(),
     babel({ presets: [reactCompilerPreset()] }),
