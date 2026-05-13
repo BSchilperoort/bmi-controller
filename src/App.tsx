@@ -33,6 +33,7 @@ function App() {
   const [connected, setConnected] = useState<boolean | null>(null)
   const [playing, setPlaying] = useState(false)
   const playingRef = useRef(false)
+  const loopRunningRef = useRef(false)
   const [availableGrids, setAvailableGrids] = useState<Map<number, string>>(new Map())
   const [gridVarMap, setGridVarMap] = useState<Map<number, string[]>>(new Map())
   const [selectedGridId, setSelectedGridId] = useState<number | null>(null)
@@ -114,10 +115,11 @@ function App() {
   }
 
   async function play() {
-    if (!model) return
+    if (!model || loopRunningRef.current) return
     const endTime = model.endTime
     setPlaying(true)
     playingRef.current = true
+    loopRunningRef.current = true
     setError(null)
     try {
       while (playingRef.current) {
@@ -134,9 +136,11 @@ function App() {
       }
     } catch (e) {
       setError(getErrorMessage(e))
+    } finally {
+      setPlaying(false)
+      playingRef.current = false
+      loopRunningRef.current = false
     }
-    setPlaying(false)
-    playingRef.current = false
   }
 
   function pause() {
