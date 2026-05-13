@@ -36,14 +36,19 @@ export function VarsSection({
           Input Variables
           <span className="badge">{model?.inputVars.length ?? 0}</span>
         </h2>
-        <select
-          className="var-select"
-          value={selectedInputVar}
-          onChange={e => onSelectInputVar(e.target.value)}
-        >
-          <option value="">Select…</option>
-          {model?.inputVars.map(n => <option key={n} value={n}>{n}</option>)}
-        </select>
+        <div className="var-select-wrap">
+          <select
+            className="var-select"
+            value={selectedInputVar}
+            onChange={e => onSelectInputVar(e.target.value)}
+          >
+            <option value="">Select…</option>
+            {model?.inputVars.map(n => <option key={n} value={n}>{n}</option>)}
+          </select>
+          {selectedInputVar && (
+            <button className="var-clear" onClick={() => onSelectInputVar('')} aria-label="Deselect input variable">×</button>
+          )}
+        </div>
         {selectedInputVar && (
           <VarRow
             info={varInfo[selectedInputVar]}
@@ -65,14 +70,19 @@ export function VarsSection({
           Output Variables
           <span className="badge">{model?.outputVars.length ?? 0}</span>
         </h2>
-        <select
-          className="var-select"
-          value={selectedOutputVar}
-          onChange={e => onSelectOutputVar(e.target.value)}
-        >
-          <option value="">Select…</option>
-          {model?.outputVars.map(n => <option key={n} value={n}>{n}</option>)}
-        </select>
+        <div className="var-select-wrap">
+          <select
+            className="var-select"
+            value={selectedOutputVar}
+            onChange={e => onSelectOutputVar(e.target.value)}
+          >
+            <option value="">Select…</option>
+            {model?.outputVars.map(n => <option key={n} value={n}>{n}</option>)}
+          </select>
+          {selectedOutputVar && (
+            <button className="var-clear" onClick={() => onSelectOutputVar('')} aria-label="Deselect output variable">×</button>
+          )}
+        </div>
         {selectedOutputVar && (
           <>
             <div className="var-indices">

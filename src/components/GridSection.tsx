@@ -28,8 +28,8 @@ export function GridSection({
   if (availableGrids.size === 0) return null
 
   return (
-    <section className="chart-section">
-      <h2 className="chart-heading">Grid View</h2>
+    <details className="chart-section" open>
+      <summary className="chart-heading">Grid View</summary>
       <div className="chart-controls">
         <div className="field-row">
           <label htmlFor="grid-select">Grid</label>
@@ -43,6 +43,9 @@ export function GridSection({
               <option key={id} value={id}>Grid {id} ({type.replace(/_/g, ' ')})</option>
             ))}
           </select>
+          {selectedGridId !== null && (
+            <button className="var-clear var-clear-inline" onClick={() => onSelectGrid(null)} aria-label="Deselect grid">×</button>
+          )}
         </div>
         {selectedGridId !== null && (gridVarMap.get(selectedGridId)?.length ?? 0) > 0 && (
           <div className="field-row">
@@ -57,6 +60,9 @@ export function GridSection({
                 <option key={v} value={v}>{v}</option>
               ))}
             </select>
+            {gridVar && (
+              <button className="var-clear var-clear-inline" onClick={() => onSelectGridVar('')} aria-label="Deselect grid variable">×</button>
+            )}
           </div>
         )}
         {gridData && (gridData.type === 'structured_quadrilateral' || gridData.type === 'unstructured') && (
@@ -93,6 +99,6 @@ export function GridSection({
           showNodes={gridShowNodes}
         />
       )}
-    </section>
+    </details>
   )
 }

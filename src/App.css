@@ -383,6 +383,11 @@ input[type='number'] {
   letter-spacing: 0;
 }
 
+.var-select-wrap {
+  position: relative;
+  margin-bottom: 4px;
+}
+
 .var-select {
   width: 100%;
   padding: 6px 10px;
@@ -393,11 +398,35 @@ input[type='number'] {
   font: inherit;
   font-size: 13px;
   outline: none;
-  margin-bottom: 4px;
 
   &:focus {
     border-color: var(--accent);
     box-shadow: 0 0 0 3px var(--accent-bg);
+  }
+}
+
+.var-clear {
+  position: absolute;
+  right: 24px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  color: var(--text);
+  padding: 2px 4px;
+  border-radius: 3px;
+
+  &:hover {
+    color: var(--text-h);
+    background: var(--accent-bg);
+  }
+
+  &.var-clear-inline {
+    position: static;
+    transform: none;
   }
 }
 
@@ -503,8 +532,12 @@ input[type='number'] {
 /* ─── Chart section ───────────────────────────────── */
 
 .chart-section {
-  padding: 20px 24px 28px;
+  padding: 20px 24px;
   border-top: 1px solid var(--border);
+
+  &[open] {
+    padding-bottom: 28px;
+  }
 }
 
 .chart-heading {
@@ -513,7 +546,32 @@ input[type='number'] {
   letter-spacing: 0.1em;
   color: var(--text);
   font-weight: 600;
-  margin: 0 0 14px;
+  margin: 0;
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+
+  &::-webkit-details-marker {
+    display: none;
+  }
+
+  &::before {
+    content: '▾';
+    font-size: 10px;
+    display: inline-block;
+    transition: transform 0.15s;
+  }
+}
+
+details:not([open]) > .chart-heading::before {
+  transform: rotate(-90deg);
+}
+
+details[open] > .chart-heading {
+  margin-bottom: 14px;
 }
 
 .chart-controls {

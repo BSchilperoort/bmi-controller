@@ -137,10 +137,9 @@ export function PlotSection({
     g.append('g')
       .attr('transform', `translate(0,${IH})`)
       .call(
-        d3
-          .axisBottom(xScale)
-          .tickSizeOuter(0)
-          .tickFormat(isCFTime ? v => toDisplayTimeRef.current(+v) : null),
+        isCFTime
+          ? d3.axisBottom(xScale).tickSizeOuter(0).tickFormat((v: d3.NumberValue) => toDisplayTimeRef.current(+v))
+          : d3.axisBottom(xScale).tickSizeOuter(0),
       )
       .style('font-size', '11px')
       .call(gg => gg.select('.domain').attr('stroke', 'var(--border)'))
@@ -315,8 +314,8 @@ export function PlotSection({
   }, [displayData])
 
   return (
-    <section className="chart-section">
-      <h2 className="chart-heading">Plot</h2>
+    <details className="chart-section" open>
+      <summary className="chart-heading">Plot</summary>
       <div className="chart-controls">
         <div className="field-row">
           <label htmlFor="chart-var">Variable</label>
@@ -358,6 +357,6 @@ export function PlotSection({
           aria-label={`Time series plot of ${chartVar}`}
         />
       )}
-    </section>
+    </details>
   )
 }
