@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { client } from './api/client.ts'
+import { client, DEFAULT_SERVER_URL } from './api/client.ts'
 import { formatCFDate, parseCFTimeUnits } from './utils/cfTime.ts'
 import { type GridData } from './components/GridView.tsx'
 import type { Phase, VarMeta, VarInfo, ModelState, ChartPoint } from './interfaces/index.ts'
@@ -12,6 +12,7 @@ import './App.css'
 
 function App() {
   const [phase, setPhase] = useState<Phase>('idle')
+  const [serverUrl, setServerUrlState] = useState(() => localStorage.getItem('bmi-server-url') ?? DEFAULT_SERVER_URL)
   const [configFile, setConfigFile] = useState('experiment_leakybucket_config.json')
   const [model, setModel] = useState<ModelState | null>(null)
   const [varInfo, setVarInfo] = useState<Record<string, VarInfo>>({})
@@ -143,7 +144,17 @@ function App() {
     setPlaying(false)
   }
 
+  function handleServerUrlChange(url: string) {
+    setServerUrlState(url)
+    localStorage.setItem('bmi-server-url', url)
+  }
+
   async function initialize() {
+    await fetch('/__bmi_proxy__', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: serverUrl }),
+    }).catch(() => {})
     setError(null)
     startOp('init')
     try {
@@ -508,6 +519,17 @@ function App() {
           <p className="init-desc">
             Connect to a remoteBMI service and control the model lifecycle.
           </p>
+          <div className="field">
+            <label htmlFor="server-url">Server URL</label>
+            <input
+              id="server-url"
+              type="text"
+              value={serverUrl}
+              onChange={e => handleServerUrlChange(e.target.value)}
+              placeholder={DEFAULT_SERVER_URL}
+              disabled={ops.init}
+            />
+          </div>
           <div className="field">
             <label htmlFor="config-file">Configuration file path</label>
             <input
