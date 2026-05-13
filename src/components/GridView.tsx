@@ -93,6 +93,17 @@ function subsampleLinear(min: number, max: number, count: number, maxLines: numb
   return subsampleArr(Array.from({ length: count }, (_, i) => min + i * delta), maxLines)
 }
 
+// Compute cell boundary positions for node-centered data.
+// Returns n+1 boundaries for n node coordinates; edge cells extend by half the edge spacing.
+function nodeCellBounds(coords: number[]): number[] {
+  const n = coords.length
+  if (n === 1) return [coords[0] - 0.5, coords[0] + 0.5]
+  const b = [coords[0] - (coords[1] - coords[0]) / 2]
+  for (let i = 1; i < n; i++) b.push((coords[i - 1] + coords[i]) / 2)
+  b.push(coords[n - 1] + (coords[n - 1] - coords[n - 2]) / 2)
+  return b
+}
+
 function hsl(t: number) {
   return `hsl(${(240 * (1 - Math.max(0, Math.min(1, t)))).toFixed(1)},85%,55%)`
 }
@@ -158,52 +169,71 @@ function AxisLabels({ xLabel, yLabel }: { xLabel: string; yLabel: string }) {
 function UniformRectilinearView({ g, values, units }: { g: UniformRectilinearGrid; values?: number[]; units?: string }) {
   const n = g.rank
   const ncols = g.shape[n - 1] ?? 1, nrows = g.shape[n - 2] ?? 1
-  const x0 = g.origin[n - 1] ?? 0,  y0 = g.origin[n - 2] ?? 0
-  const dx = g.spacing[n - 1] ?? 1,  dy = g.spacing[n - 2] ?? 1
+  const x0 = g.origin[n - 1] ?? 0, y0 = g.origin[n - 2] ?? 0
+  const dx = g.spacing[n - 1] ?? 1, dy = g.spacing[n - 2] ?? 1
   const xMax = x0 + (ncols - 1) * dx, yMax = y0 + (nrows - 1) * dy
 
-  const mx = (v: number) => lerp(v, x0, xMax === x0 ? x0 + 1 : xMax, X1, X2)
-  const my = (v: number) => lerp(v, y0, yMax === y0 ? y0 + 1 : yMax, Y2, Y1)
-
-  const cellRows = nrows - 1, cellCols = ncols - 1
   const nodeCenter = values?.length === nrows * ncols
+  const cellRows = nrows - 1, cellCols = ncols - 1
   const cellCenter = values?.length === cellRows * cellCols
 
-  const colorResult = (values && values.length > 0 && cellRows > 0 && cellCols > 0 && (nodeCenter || cellCenter))
+  // Node-centered: extend domain by half a cell so each value fills a full dx × dy rectangle
+  const xHalf = nodeCenter ? dx / 2 : 0, yHalf = nodeCenter ? dy / 2 : 0
+  const xDomMin = x0 - xHalf, xDomMax = xMax + xHalf
+  const yDomMin = y0 - yHalf, yDomMax = yMax + yHalf
+  const mx = (v: number) => lerp(v, xDomMin, xDomMax === xDomMin ? xDomMin + 1 : xDomMax, X1, X2)
+  const my = (v: number) => lerp(v, yDomMin, yDomMax === yDomMin ? yDomMin + 1 : yDomMax, Y2, Y1)
+
+  const colorResult = (values && values.length > 0 && (nodeCenter || (cellRows > 0 && cellCols > 0 && cellCenter)))
     ? (() => {
         const { lo: vMin, hi: vMax } = minMax(values)
-        const step = Math.max(1, Math.ceil(Math.sqrt((cellRows * cellCols) / MAX_CELLS)))
-        const cells = []
-        for (let i = 0; i < cellRows; i += step) {
-          for (let j = 0; j < cellCols; j += step) {
-            const iEnd = Math.min(i + step, cellRows), jEnd = Math.min(j + step, cellCols)
-            let sum = 0, cnt = 0
-            for (let ii = i; ii < iEnd; ii++) {
-              for (let jj = j; jj < jEnd; jj++) {
-                sum += nodeCenter
-                  ? (values[ii * ncols + jj] + values[ii * ncols + jj + 1] +
-                     values[(ii + 1) * ncols + jj] + values[(ii + 1) * ncols + jj + 1]) / 4
-                  : values[ii * cellCols + jj]
-                cnt++
-              }
+        if (nodeCenter) {
+          const step = Math.max(1, Math.ceil(Math.sqrt((nrows * ncols) / MAX_CELLS)))
+          const cells = []
+          for (let i = 0; i < nrows; i += step) {
+            for (let j = 0; j < ncols; j += step) {
+              const iEnd = Math.min(i + step, nrows), jEnd = Math.min(j + step, ncols)
+              let sum = 0, cnt = 0
+              for (let ii = i; ii < iEnd; ii++)
+                for (let jj = j; jj < jEnd; jj++) { sum += values[ii * ncols + jj]; cnt++ }
+              cells.push(
+                <rect key={`${i}_${j}`}
+                  x={mx(x0 + j * dx - dx / 2)} y={my(y0 + iEnd * dy - dy / 2)}
+                  width={mx(x0 + jEnd * dx - dx / 2) - mx(x0 + j * dx - dx / 2)}
+                  height={my(y0 + i * dy - dy / 2) - my(y0 + iEnd * dy - dy / 2)}
+                  fill={hsl(valToT(sum / cnt, vMin, vMax))}
+                />
+              )
             }
-            cells.push(
-              <rect key={`${i}_${j}`}
-                x={mx(x0 + j * dx)} y={my(y0 + iEnd * dy)}
-                width={mx(x0 + jEnd * dx) - mx(x0 + j * dx)}
-                height={my(y0 + i * dy) - my(y0 + iEnd * dy)}
-                fill={hsl(valToT(sum / cnt, vMin, vMax))}
-              />
-            )
           }
+          return { cells, vMin, vMax }
+        } else {
+          const step = Math.max(1, Math.ceil(Math.sqrt((cellRows * cellCols) / MAX_CELLS)))
+          const cells = []
+          for (let i = 0; i < cellRows; i += step) {
+            for (let j = 0; j < cellCols; j += step) {
+              const iEnd = Math.min(i + step, cellRows), jEnd = Math.min(j + step, cellCols)
+              let sum = 0, cnt = 0
+              for (let ii = i; ii < iEnd; ii++)
+                for (let jj = j; jj < jEnd; jj++) { sum += values[ii * cellCols + jj]; cnt++ }
+              cells.push(
+                <rect key={`${i}_${j}`}
+                  x={mx(x0 + j * dx)} y={my(y0 + iEnd * dy)}
+                  width={mx(x0 + jEnd * dx) - mx(x0 + j * dx)}
+                  height={my(y0 + i * dy) - my(y0 + iEnd * dy)}
+                  fill={hsl(valToT(sum / cnt, vMin, vMax))}
+                />
+              )
+            }
+          }
+          return { cells, vMin, vMax }
         }
-        return { cells, vMin, vMax }
       })()
     : null
 
   const xLines = subsampleLinear(x0, xMax, ncols, 60)
   const yLines = subsampleLinear(y0, yMax, nrows, 60)
-  const [svgX1, svgX2, svgY1, svgY2] = [mx(x0), mx(xMax), my(yMax), my(y0)]
+  const [svgX1, svgX2, svgY1, svgY2] = [mx(xDomMin), mx(xDomMax), my(yDomMax), my(yDomMin)]
 
   return (
     <svg viewBox={`0 0 ${W} ${H}`} width="100%" height={H}>
@@ -225,32 +255,48 @@ function RectilinearView({ g, values, units }: { g: RectilinearGrid; values?: nu
   if (xs.length === 0 || ys.length === 0) return <p className="chart-empty">No coordinate data.</p>
 
   const ncols = xs.length, nrows = ys.length
-  const xMin = xs[0], xMax = xs[ncols - 1], yMin = ys[0], yMax = ys[nrows - 1]
-  const mx = (v: number) => lerp(v, xMin, xMax === xMin ? xMin + 1 : xMax, X1, X2)
-  const my = (v: number) => lerp(v, yMin, yMax === yMin ? yMin + 1 : yMax, Y2, Y1)
-
   const cellRows = nrows - 1, cellCols = ncols - 1
   const nodeCenter = values?.length === nrows * ncols
   const cellCenter = values?.length === cellRows * cellCols
 
-  const colorResult = (values && values.length > 0 && cellRows > 0 && cellCols > 0 && (nodeCenter || cellCenter))
+  // Node-centered: use midpoint boundaries (extended by half-edge-spacing at the edges)
+  // Cell-centered or no values: use node positions as-is (cells are between nodes)
+  const xBounds = nodeCenter ? nodeCellBounds(xs) : xs
+  const yBounds = nodeCenter ? nodeCellBounds(ys) : ys
+  const xMin = xBounds[0], xMax = xBounds[xBounds.length - 1]
+  const yMin = yBounds[0], yMax = yBounds[yBounds.length - 1]
+  const mx = (v: number) => lerp(v, xMin, xMax === xMin ? xMin + 1 : xMax, X1, X2)
+  const my = (v: number) => lerp(v, yMin, yMax === yMin ? yMin + 1 : yMax, Y2, Y1)
+
+  const colorResult = (values && values.length > 0 && (nodeCenter || (cellRows > 0 && cellCols > 0 && cellCenter)))
     ? (() => {
         const { lo: vMin, hi: vMax } = minMax(values)
         const cells = []
-        for (let i = 0; i < cellRows; i++) {
-          for (let j = 0; j < cellCols; j++) {
-            const v = nodeCenter
-              ? (values[i * ncols + j] + values[i * ncols + j + 1] +
-                 values[(i + 1) * ncols + j] + values[(i + 1) * ncols + j + 1]) / 4
-              : values[i * cellCols + j]
-            cells.push(
-              <rect key={`${i}_${j}`}
-                x={mx(xs[j])} y={my(ys[i + 1])}
-                width={mx(xs[j + 1]) - mx(xs[j])}
-                height={my(ys[i]) - my(ys[i + 1])}
-                fill={hsl(valToT(v, vMin, vMax))}
-              />
-            )
+        if (nodeCenter) {
+          for (let i = 0; i < nrows; i++) {
+            for (let j = 0; j < ncols; j++) {
+              cells.push(
+                <rect key={`${i}_${j}`}
+                  x={mx(xBounds[j])} y={my(yBounds[i + 1])}
+                  width={mx(xBounds[j + 1]) - mx(xBounds[j])}
+                  height={my(yBounds[i]) - my(yBounds[i + 1])}
+                  fill={hsl(valToT(values[i * ncols + j], vMin, vMax))}
+                />
+              )
+            }
+          }
+        } else {
+          for (let i = 0; i < cellRows; i++) {
+            for (let j = 0; j < cellCols; j++) {
+              cells.push(
+                <rect key={`${i}_${j}`}
+                  x={mx(xs[j])} y={my(ys[i + 1])}
+                  width={mx(xs[j + 1]) - mx(xs[j])}
+                  height={my(ys[i]) - my(ys[i + 1])}
+                  fill={hsl(valToT(values[i * cellCols + j], vMin, vMax))}
+                />
+              )
+            }
           }
         }
         return { cells, vMin, vMax }
