@@ -1,5 +1,5 @@
 {
-  "name": "bmi-web-claude",
+  "name": "bmi-controller",
   "private": true,
   "version": "0.0.0",
   "type": "module",
