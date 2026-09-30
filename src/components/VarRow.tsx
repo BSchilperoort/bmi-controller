@@ -31,7 +31,7 @@ export function VarRow({
     <div className="var-row">
       {!isInput && info?.value != null && (
         <div className="var-value">
-          [{info.value.slice(0, 8).map(v => v.toPrecision(4)).join(', ')}
+          [{info.value.slice(0, 8).map(v => (v == null ? 'NaN' : v.toPrecision(4))).join(', ')}
           {info.value.length > 8 ? `, … (${info.value.length} values)` : ''}]
         </div>
       )}

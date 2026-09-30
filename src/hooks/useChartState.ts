@@ -22,10 +22,10 @@ export function useChartState({ model, fetchVarMeta, setVarInfo }: Params) {
   const toDisplayTime = (v: number) =>
     cfParsed ? formatCFDate(cfParsed.epoch, cfParsed.multiplierMs, v) : v.toFixed(3)
 
-  const displayData = chartData.map(d => ({
-    time: +d.time.toFixed(4),
-    value: d.values[chartIndex],
-  }))
+  // Missing values (NaN arrives as JSON null) are left out of the series
+  const displayData = chartData
+    .map(d => ({ time: +d.time.toFixed(4), value: d.values[chartIndex] }))
+    .filter(d => typeof d.value === 'number' && isFinite(d.value))
 
   async function recordChartPoint(time: number, varName: string) {
     if (!varName) return
