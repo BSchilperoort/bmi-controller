@@ -34,6 +34,12 @@ function computeBottomMargin(
   return Math.ceil(projected) + 14  // +14: tick line (6px) + breathing room
 }
 
+// Missing values arrive as null. Number.isFinite, unlike the global isFinite,
+// does not coerce null to 0.
+function isDefined(d: { value: number }) {
+  return Number.isFinite(d.value)
+}
+
 function buildFullPath(
   data: { time: number; value: number }[],
   xScale: d3.ScaleLinear<number, number>,
@@ -42,6 +48,7 @@ function buildFullPath(
   return (
     d3
       .line<{ time: number; value: number }>()
+      .defined(isDefined)
       .x(d => xScale(d.time))
       .y(d => yScale(d.value))(data) ?? ''
   )
@@ -187,6 +194,7 @@ export function PlotSection({
       .attr('fill', 'none')
       .attr('stroke', '#3b82f6')
       .attr('stroke-width', 1.5)
+      .attr('stroke-linecap', 'round')  // isolated points between gaps show as dots
       .node()
 
     // Hover elements
@@ -223,7 +231,7 @@ export function PlotSection({
       .attr('fill', 'none')
       .attr('pointer-events', 'all')
       .on('mousemove', (event: MouseEvent) => {
-        const data = displayDataRef.current
+        const data = displayDataRef.current.filter(isDefined)
         const xS = xScaleRef.current
         const yS = yScaleRef.current
         if (!data.length || !xS || !yS) return
@@ -283,13 +291,24 @@ export function PlotSection({
     // Reset y extent on non-append renders (variable change, index change, first render)
     if (!isAppend) yExtentRef.current = null
 
-    const newPoints = isAppend ? displayData.slice(prevDataLenRef.current) : displayData
-    const newMin = d3.min(newPoints, d => d.value) ?? 0
-    const newMax = d3.max(newPoints, d => d.value) ?? 0
+    const start = isAppend ? prevDataLenRef.current : 0
+    const newPoints = displayData.slice(start)
+    // d3.min/max skip missing values; undefined if every new point is missing
+    const newMin = d3.min(newPoints, d => d.value) ?? Infinity
+    const newMax = d3.max(newPoints, d => d.value) ?? -Infinity
     const [prevMin, prevMax] = yExtentRef.current ?? [Infinity, -Infinity]
     const yMin = Math.min(prevMin, newMin)
     const yMax = Math.max(prevMax, newMax)
     const yExpanded = yExtentRef.current === null || yMin < prevMin || yMax > prevMax
+
+    prevDataLenRef.current = displayData.length
+
+    // No finite values yet: nothing to draw
+    if (yMin > yMax) {
+      linePath.setAttribute('d', '')
+      yExtentRef.current = null
+      return
+    }
 
     yExtentRef.current = [yMin, yMax]
 
@@ -301,16 +320,21 @@ export function PlotSection({
       if (yGridGroupRef.current) updateYGrid(yGridGroupRef.current, yScale)
       linePath.setAttribute('d', buildFullPath(displayData, xScale, yScale))
     } else if (isAppend) {
-      // Only compute the new path segments — O(new points)
+      // Only compute the new path segments — O(new points).
+      // A point after a missing one starts a new subpath (M), leaving a gap.
       const segments = newPoints
-        .map(d => ` L ${xScale(d.time).toFixed(1)} ${yScale(d.value).toFixed(1)}`)
+        .map((d, i) => {
+          if (!isDefined(d)) return ''
+          const prev = displayData[start + i - 1]
+          const xy = `${xScale(d.time).toFixed(1)} ${yScale(d.value).toFixed(1)}`
+          // Zero-length L so an isolated point still renders (as a round cap)
+          return prev && isDefined(prev) ? ` L ${xy}` : ` M ${xy} L ${xy}`
+        })
         .join('')
       linePath.setAttribute('d', (linePath.getAttribute('d') ?? '') + segments)
     } else {
       linePath.setAttribute('d', buildFullPath(displayData, xScale, yScale))
     }
-
-    prevDataLenRef.current = displayData.length
   }, [displayData])
 
   return (

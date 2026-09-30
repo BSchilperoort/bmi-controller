@@ -108,7 +108,24 @@ function hsl(t: number) {
   return `hsl(${(240 * (1 - Math.max(0, Math.min(1, t)))).toFixed(1)},85%,55%)`
 }
 
+// Missing values (NaN is serialized as JSON null) are no-data: excluded from
+// the colour range and averages, and drawn unfilled.
+function isNum(v: number | null | undefined): v is number {
+  return typeof v === 'number' && isFinite(v)
+}
+
+function meanFinite(vs: (number | null)[]) {
+  let sum = 0, cnt = 0
+  for (const v of vs) if (isNum(v)) { sum += v; cnt++ }
+  return cnt > 0 ? sum / cnt : NaN
+}
+
+function valueFill(v: number, vMin: number, vMax: number) {
+  return isNum(v) ? hsl(valToT(v, vMin, vMax)) : 'none'
+}
+
 function fmtN(v: number) {
+  if (!isNum(v)) return '–'
   if (v === 0) return '0'
   const abs = Math.abs(v)
   return abs >= 1e4 || abs < 0.01 ? v.toExponential(2) : v.toPrecision(3)
@@ -119,9 +136,9 @@ function valToT(v: number, vMin: number, vMax: number) {
 }
 
 function minMax(arr: number[]) {
-  let lo = arr[0], hi = arr[0]
-  for (const v of arr) { if (v < lo) lo = v; if (v > hi) hi = v }
-  return { lo, hi }
+  let lo = Infinity, hi = -Infinity
+  for (const v of arr) if (isNum(v)) { if (v < lo) lo = v; if (v > hi) hi = v }
+  return lo <= hi ? { lo, hi } : { lo: NaN, hi: NaN }
 }
 
 const MAX_CELLS = 6000
@@ -195,13 +212,13 @@ function UniformRectilinearView({ g, values, units }: { g: UniformRectilinearGri
               const iEnd = Math.min(i + step, nrows), jEnd = Math.min(j + step, ncols)
               let sum = 0, cnt = 0
               for (let ii = i; ii < iEnd; ii++)
-                for (let jj = j; jj < jEnd; jj++) { sum += values[ii * ncols + jj]; cnt++ }
+                for (let jj = j; jj < jEnd; jj++) { const v = values[ii * ncols + jj]; if (isNum(v)) { sum += v; cnt++ } }
               cells.push(
                 <rect key={`${i}_${j}`}
                   x={mx(x0 + j * dx - dx / 2)} y={my(y0 + iEnd * dy - dy / 2)}
                   width={mx(x0 + jEnd * dx - dx / 2) - mx(x0 + j * dx - dx / 2)}
                   height={my(y0 + i * dy - dy / 2) - my(y0 + iEnd * dy - dy / 2)}
-                  fill={hsl(valToT(sum / cnt, vMin, vMax))}
+                  fill={valueFill(cnt > 0 ? sum / cnt : NaN, vMin, vMax)}
                 />
               )
             }
@@ -215,13 +232,13 @@ function UniformRectilinearView({ g, values, units }: { g: UniformRectilinearGri
               const iEnd = Math.min(i + step, cellRows), jEnd = Math.min(j + step, cellCols)
               let sum = 0, cnt = 0
               for (let ii = i; ii < iEnd; ii++)
-                for (let jj = j; jj < jEnd; jj++) { sum += values[ii * cellCols + jj]; cnt++ }
+                for (let jj = j; jj < jEnd; jj++) { const v = values[ii * cellCols + jj]; if (isNum(v)) { sum += v; cnt++ } }
               cells.push(
                 <rect key={`${i}_${j}`}
                   x={mx(x0 + j * dx)} y={my(y0 + iEnd * dy)}
                   width={mx(x0 + jEnd * dx) - mx(x0 + j * dx)}
                   height={my(y0 + i * dy) - my(y0 + iEnd * dy)}
-                  fill={hsl(valToT(sum / cnt, vMin, vMax))}
+                  fill={valueFill(cnt > 0 ? sum / cnt : NaN, vMin, vMax)}
                 />
               )
             }
@@ -280,7 +297,7 @@ function RectilinearView({ g, values, units }: { g: RectilinearGrid; values?: nu
                   x={mx(xBounds[j])} y={my(yBounds[i + 1])}
                   width={mx(xBounds[j + 1]) - mx(xBounds[j])}
                   height={my(yBounds[i]) - my(yBounds[i + 1])}
-                  fill={hsl(valToT(values[i * ncols + j], vMin, vMax))}
+                  fill={valueFill(values[i * ncols + j], vMin, vMax)}
                 />
               )
             }
@@ -293,7 +310,7 @@ function RectilinearView({ g, values, units }: { g: RectilinearGrid; values?: nu
                   x={mx(xs[j])} y={my(ys[i + 1])}
                   width={mx(xs[j + 1]) - mx(xs[j])}
                   height={my(ys[i]) - my(ys[i + 1])}
-                  fill={hsl(valToT(values[i * cellCols + j], vMin, vMax))}
+                  fill={valueFill(values[i * cellCols + j], vMin, vMax)}
                 />
               )
             }
@@ -356,9 +373,9 @@ function StructuredQuadView({ g, values, units, showFaces, showEdges, showNodes 
         let fill = 'var(--accent-bg)'
         if (colorRange) {
           const v = nodeCenter
-            ? (values![a] + values![b] + values![c] + values![d]) / 4
+            ? meanFinite([values![a], values![b], values![c], values![d]])
             : values![(i * (ncols - 1)) + j]
-          fill = hsl(valToT(v, colorRange.lo, colorRange.hi))
+          fill = valueFill(v, colorRange.lo, colorRange.hi)
         }
         facePolys.push(
           <polygon key={`f${i}_${j}`}
@@ -387,7 +404,7 @@ function StructuredQuadView({ g, values, units, showFaces, showEdges, showNodes 
   const nodeDots = showNodes !== false
     ? xs.map((x, i) => {
         let fill = '#ef4444'
-        if (colorRange && nodeCenter) fill = hsl(valToT(values![i], colorRange.lo, colorRange.hi))
+        if (colorRange && nodeCenter) fill = valueFill(values![i], colorRange.lo, colorRange.hi)
         return <circle key={i} cx={mx(x)} cy={my(ys[i])} r={2.5} fill={fill} />
       })
     : []
@@ -434,9 +451,9 @@ function UnstructuredView({ g, values, units, showFaces, showEdges, showNodes }:
       let fill = 'var(--accent-bg)'
       if (colorRange) {
         const v = nodeCenter
-          ? nodeIdxs.reduce((s, ni) => s + values![ni], 0) / nodeIdxs.length
+          ? meanFinite(nodeIdxs.map(ni => values![ni]))
           : values![fi]
-        fill = hsl(valToT(v, colorRange.lo, colorRange.hi))
+        fill = valueFill(v, colorRange.lo, colorRange.hi)
       }
       facePolys.push(
         <polygon key={fi} points={pts} fill={fill}
@@ -457,7 +474,7 @@ function UnstructuredView({ g, values, units, showFaces, showEdges, showNodes }:
   const nodeDots = showNodes !== false
     ? xs.map((x, i) => {
         let fill = '#ef4444'
-        if (colorRange && nodeCenter) fill = hsl(valToT(values![i], colorRange.lo, colorRange.hi))
+        if (colorRange && nodeCenter) fill = valueFill(values![i], colorRange.lo, colorRange.hi)
         return <circle key={i} cx={mx(x)} cy={my(ys[i])} r={3} fill={fill} />
       })
     : []
