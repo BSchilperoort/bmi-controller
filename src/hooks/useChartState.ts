@@ -22,10 +22,11 @@ export function useChartState({ model, fetchVarMeta, setVarInfo }: Params) {
   const toDisplayTime = (v: number) =>
     cfParsed ? formatCFDate(cfParsed.epoch, cfParsed.multiplierMs, v) : v.toFixed(3)
 
-  // Missing values (NaN arrives as JSON null) are left out of the series
-  const displayData = chartData
-    .map(d => ({ time: +d.time.toFixed(4), value: d.values[chartIndex] }))
-    .filter(d => typeof d.value === 'number' && isFinite(d.value))
+  // Missing values (NaN arrives as JSON null) stay in the series; the plot draws them as gaps
+  const displayData = chartData.map(d => ({
+    time: +d.time.toFixed(4),
+    value: d.values[chartIndex],
+  }))
 
   async function recordChartPoint(time: number, varName: string) {
     if (!varName) return
