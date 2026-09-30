@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react'
 import { client } from '../api/client.ts'
 import type { ModelState, VarInfo, VarMeta } from '../interfaces/index.ts'
-import { parseIndices, getErrorMessage } from '../utils/index.ts'
+import { parseIndices, parseValues, formatValues, getErrorMessage } from '../utils/index.ts'
 
 interface Params {
   model: ModelState | null
@@ -80,8 +80,13 @@ export function useModelVars({ model, startOp, endOp, setError }: Params) {
 
   async function setValue(name: string, indicesStr?: string) {
     const raw = setValueInputs[name] ?? ''
-    const values = raw.split(',').map(s => parseFloat(s.trim())).filter(n => !isNaN(n))
-    if (!values.length) { setError('Enter comma-separated numbers'); return }
+    const values = parseValues(raw)
+    if (typeof values === 'string') { setError(values); return }
+    // NaN would be sent as JSON null, which the server rejects
+    if (values.some(isNaN)) {
+      setError('Values contain NaN, which cannot be sent. Replace them, or set only the other values using indices.')
+      return
+    }
     const indices = indicesStr ? parseIndices(indicesStr) : null
     if (indices && indices.length > 0) {
       if (indices.length !== values.length) {
@@ -124,7 +129,7 @@ export function useModelVars({ model, startOp, endOp, setError }: Params) {
       const { data } = await client.GET('/get_value/{name}', { params: { path: { name } } })
       if (data != null) {
         const nums = Array.isArray(data) ? data : [data as unknown as number]
-        setSetValueInputs(prev => ({ ...prev, [name]: nums.join(', ') }))
+        setSetValueInputs(prev => ({ ...prev, [name]: formatValues(nums) }))
       }
     } catch { /* ignore */ }
   }
@@ -153,7 +158,7 @@ export function useModelVars({ model, startOp, endOp, setError }: Params) {
         const { data } = await client.GET('/get_value/{name}', { params: { path: { name } } })
         if (data != null) {
           const nums = Array.isArray(data) ? data : [data as unknown as number]
-          prefill = nums.join(', ')
+          prefill = formatValues(nums)
         }
       }
       setValidPrefills(prev => new Set([...prev, name]))
