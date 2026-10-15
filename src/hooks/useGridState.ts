@@ -17,6 +17,7 @@ export function useGridState({ availableGrids, setError }: Params) {
   const [gridShowFaces, setGridShowFaces] = useState(true)
   const [gridShowEdges, setGridShowEdges] = useState(true)
   const [gridShowNodes, setGridShowNodes] = useState(true)
+  const [gridLayer, setGridLayer] = useState(0)
 
   const gridVarRef = useRef(gridVar)
   gridVarRef.current = gridVar
@@ -38,6 +39,7 @@ export function useGridState({ availableGrids, setError }: Params) {
     setGridData(null)
     setGridVar('')
     setGridVarValues(null)
+    setGridLayer(0)
     if (id === null) return
     const typeStr = availableGrids.get(id) ?? 'unknown'
     setLoadingGrid(true)
@@ -56,14 +58,16 @@ export function useGridState({ availableGrids, setError }: Params) {
           shape: shapeRes.data ?? [], spacing: spacingRes.data ?? [], origin: originRes.data ?? [],
         })
       } else if (typeStr === 'rectilinear') {
-        const [shapeRes, xRes, yRes] = await Promise.all([
+        const [shapeRes, xRes, yRes, zRes] = await Promise.all([
           client.GET('/get_grid_shape/{grid}', { params: { path: { grid: id } } }),
           client.GET('/get_grid_x/{grid}', { params: { path: { grid: id } } }),
           client.GET('/get_grid_y/{grid}', { params: { path: { grid: id } } }),
+          rank === 3 ? client.GET('/get_grid_z/{grid}', { params: { path: { grid: id } } }) : null,
         ])
         setGridData({
           type: 'rectilinear', rank,
           shape: shapeRes.data ?? [], x: xRes.data ?? [], y: yRes.data ?? [],
+          z: zRes?.data ?? undefined,
         })
       } else if (typeStr === 'structured_quadrilateral') {
         const [shapeRes, xRes, yRes] = await Promise.all([
@@ -122,6 +126,7 @@ export function useGridState({ availableGrids, setError }: Params) {
     gridShowFaces, setGridShowFaces,
     gridShowEdges, setGridShowEdges,
     gridShowNodes, setGridShowNodes,
+    gridLayer, setGridLayer,
     selectGrid,
     selectGridVar,
   }

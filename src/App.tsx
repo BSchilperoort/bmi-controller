@@ -126,12 +126,14 @@ function App() {
         gridShowFaces={s.gridShowFaces}
         gridShowEdges={s.gridShowEdges}
         gridShowNodes={s.gridShowNodes}
+        gridLayer={s.gridLayer}
         varMeta={s.varMeta}
         onSelectGrid={s.selectGrid}
         onSelectGridVar={s.selectGridVar}
         onShowFacesChange={s.setGridShowFaces}
         onShowEdgesChange={s.setGridShowEdges}
         onShowNodesChange={s.setGridShowNodes}
+        onLayerChange={s.setGridLayer}
       />
     </main>
   )

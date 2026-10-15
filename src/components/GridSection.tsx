@@ -1,5 +1,6 @@
 import type { VarMeta } from '../interfaces/index.ts'
 import { GridView, type GridData } from './GridView.tsx'
+import { getLayerInfo, layerZ, sliceLayer } from '../utils/gridLayers.ts'
 
 interface GridSectionProps {
   availableGrids: Map<number, string>
@@ -12,20 +13,29 @@ interface GridSectionProps {
   gridShowFaces: boolean
   gridShowEdges: boolean
   gridShowNodes: boolean
+  gridLayer: number
   varMeta: Record<string, VarMeta>
   onSelectGrid: (id: number | null) => void
   onSelectGridVar: (name: string) => void
   onShowFacesChange: (v: boolean) => void
   onShowEdgesChange: (v: boolean) => void
   onShowNodesChange: (v: boolean) => void
+  onLayerChange: (v: number) => void
 }
 
 export function GridSection({
   availableGrids, gridVarMap, selectedGridId, gridData, loadingGrid,
-  gridVar, gridVarValues, gridShowFaces, gridShowEdges, gridShowNodes, varMeta,
-  onSelectGrid, onSelectGridVar, onShowFacesChange, onShowEdgesChange, onShowNodesChange,
+  gridVar, gridVarValues, gridShowFaces, gridShowEdges, gridShowNodes, gridLayer, varMeta,
+  onSelectGrid, onSelectGridVar, onShowFacesChange, onShowEdgesChange, onShowNodesChange, onLayerChange,
 }: GridSectionProps) {
   if (availableGrids.size === 0) return null
+
+  const layerInfo = gridData ? getLayerInfo(gridData, gridVarValues) : null
+  const layer = layerInfo ? Math.min(gridLayer, layerInfo.count - 1) : 0
+  const view = gridData && layerInfo
+    ? sliceLayer(gridData, gridVarValues ?? undefined, layerInfo, layer)
+    : { data: gridData, values: gridVarValues ?? undefined }
+  const z = gridData && layerInfo ? layerZ(gridData, layerInfo, layer) : null
 
   return (
     <details className="chart-section" open>
@@ -65,6 +75,34 @@ export function GridSection({
             )}
           </div>
         )}
+        {layerInfo && layerInfo.count > 1 && (
+          <div className="field-row">
+            <label htmlFor="grid-layer">Z layer</label>
+            <input
+              id="grid-layer"
+              type="range"
+              min={0}
+              max={layerInfo.count - 1}
+              value={layer}
+              onChange={e => onLayerChange(Number(e.target.value))}
+            />
+            <input
+              className="index-input"
+              type="number"
+              min={0}
+              max={layerInfo.count - 1}
+              value={layer}
+              onChange={e => {
+                const v = Number(e.target.value)
+                if (Number.isInteger(v)) onLayerChange(Math.max(0, Math.min(layerInfo.count - 1, v)))
+              }}
+              aria-label="Z layer index"
+            />
+            <span className="grid-layer-info">
+              / {layerInfo.count - 1}{z !== null && ` (z = ${Number(z.toPrecision(6))})`}
+            </span>
+          </div>
+        )}
         {gridData && (gridData.type === 'structured_quadrilateral' || gridData.type === 'unstructured') && (
           <div className="field-row">
             <label>Show</label>
@@ -89,10 +127,10 @@ export function GridSection({
           No 2D view for grid type "{availableGrids.get(selectedGridId)}".
         </p>
       )}
-      {!loadingGrid && gridData && (
+      {!loadingGrid && view.data && (
         <GridView
-          data={gridData}
-          values={gridVarValues ?? undefined}
+          data={view.data}
+          values={view.values}
           units={varMeta[gridVar]?.units}
           showFaces={gridShowFaces}
           showEdges={gridShowEdges}

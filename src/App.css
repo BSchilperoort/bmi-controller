@@ -621,6 +621,12 @@ details[open] > .chart-heading {
   margin: 0;
 }
 
+.grid-layer-info {
+  font-size: 13px;
+  color: var(--text);
+  white-space: nowrap;
+}
+
 .grid-toggle {
   display: inline-flex;
   align-items: center;
