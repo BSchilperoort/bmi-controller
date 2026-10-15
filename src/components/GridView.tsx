@@ -14,6 +14,7 @@ export interface RectilinearGrid {
   shape: number[]
   x: number[]  // column x-coordinates (length = ncols)
   y: number[]  // row y-coordinates (length = nrows)
+  z?: number[] // layer z-coordinates (length = nlayers), rank 3 only
 }
 
 export interface StructuredQuadGrid {
